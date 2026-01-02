@@ -45,8 +45,4 @@ def create_app(config_name='development'):
     app.register_blueprint(maintenance_bp, url_prefix='/api/maintenance')
     app.register_blueprint(notifications_bp, url_prefix='/api/notifications')
     
-    # Create tables
-    with app.app_context():
-        db.create_all()
-    
     return app
