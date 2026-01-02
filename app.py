@@ -1,9 +1,8 @@
-from flask import Flask
+from flask import Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
-from flasgger import Swagger
 from dotenv import load_dotenv
 import os
 
@@ -29,7 +28,15 @@ def create_app(config_name='development'):
     migrate.init_app(app, db)
     jwt.init_app(app)
     CORS(app)
-    Swagger(app)
+
+    @app.route('/')
+    def health_check():
+        """Health check endpoint"""
+        return jsonify({
+            'message': 'HomeHub Backend is running',
+            'status': 'healthy',
+            'version': '1.0.0'
+    }), 200
     
     # Register blueprints
     from routes import auth_bp, users_bp, properties_bp, units_bp, leases_bp, \
