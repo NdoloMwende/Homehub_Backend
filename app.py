@@ -36,7 +36,27 @@ def create_app(config_name='development'):
             'message': 'HomeHub Backend is running',
             'status': 'healthy',
             'version': '1.0.0'
-    }), 200
+        }), 200
+
+    @app.route('/api')
+    def api_info():
+        """API information endpoint"""
+        return jsonify({
+            'name': 'HomeHub Backend API',
+            'version': '1.0.0',
+            'description': 'Property rental management system',
+            'endpoints': {
+                'auth': '/api/auth',
+                'users': '/api/users',
+                'properties': '/api/properties',
+                'units': '/api/units',
+                'leases': '/api/leases',
+                'rent_invoices': '/api/rent-invoices',
+                'payments': '/api/payments',
+                'maintenance': '/api/maintenance',
+                'notifications': '/api/notifications'
+            }
+        }), 200
     
     # Register blueprints
     from routes import auth_bp, users_bp, properties_bp, units_bp, leases_bp, \
