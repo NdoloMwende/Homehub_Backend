@@ -11,7 +11,8 @@ def get_all_properties():
     Get all approved properties
     ---
     """
-    properties = Property.query.filter_by(status='approved').all()
+    # properties = Property.query.filter_by(status='approved').all()
+    properties = Property.query.all()
     return jsonify([prop.to_dict() for prop in properties]), 200
 
 @properties_bp.route('', methods=['POST'])

@@ -18,7 +18,7 @@ def create_app(config_name='development'):
     # Configuration
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
         'DATABASE_URL',
-        'postgresql://localhost/homehub_db'
+        'postgresql://localhost/homehub_db2'
     )
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
