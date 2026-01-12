@@ -18,64 +18,41 @@ def get_all_properties():
 @properties_bp.route('', methods=['POST'])
 @jwt_required()
 def create_property():
-    """
-    Create new property (Landlord only)
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          properties:
-            name:
-              type: string
-            address:
-              type: string
-            city:
-              type: string
-            country:
-              type: string
-            description:
-              type: string
-            image_url:
-              type: string
-            evidence_of_ownership:
-              type: string
-            lrn_no:
-              type: string
-            location:
-              type: string
-    """
-    current_user = User.query.get(get_jwt_identity())
-    if current_user.role != 'landlord':
-        return jsonify({'error': 'Only landlords can create properties'}), 403
+    current_user_id = get_jwt_identity() # This returns the UUID string
     
+    # Fetch user object to check role
+    current_user = User.query.get(current_user_id)
+    
+    if not current_user or current_user.role != 'landlord':
+        return jsonify({'error': 'Only landlords can create properties'}), 403
+
     data = request.get_json()
     
-    required_fields = ['name', 'address', 'city', 'country']
-    if not all(field in data for field in required_fields):
-        return jsonify({'error': 'Missing required fields'}), 400
-    
-    property = Property(
+    # Create Property with UUIDs and New Fields
+    new_property = Property(
         landlord_id=current_user.id,
-        name=data['name'],
-        address=data['address'],
-        city=data['city'],
-        country=data['country'],
+        name=data.get('title'),    # Map 'title' from frontend to 'name' in DB
+        address=data.get('address'),
+        city=data.get('city'),
+        country='Kenya',           # Default
+        state=data.get('state'),
         description=data.get('description'),
+        
+        # New Rental Details
+        price=data.get('price'),
+        bedrooms=data.get('bedrooms'),
+        bathrooms=data.get('bathrooms'),
+        square_feet=data.get('square_feet'),
+        property_type=data.get('property_type'),
         image_url=data.get('image_url'),
-        evidence_of_ownership=data.get('evidence_of_ownership'),
-        lrn_no=data.get('lrn_no'),
-        location=data.get('location'),
-        status='pending'
+        
+        status='pending' 
     )
     
-    db.session.add(property)
+    db.session.add(new_property)
     db.session.commit()
     
-    return jsonify({'message': 'Property created successfully', 'property': property.to_dict()}), 201
+    return jsonify({'message': 'Property created successfully', 'property': new_property.to_dict()}), 201
 
 @properties_bp.route('/<property_id>', methods=['GET'])
 def get_property(property_id):
