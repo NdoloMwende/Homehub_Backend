@@ -30,23 +30,15 @@ def create_app(config_name='development'):
     jwt.init_app(app)
     CORS(app)
 
-    # 3. DATABASE RESET & AUTO-CREATE
-    # This block runs every time the server starts.
+    # 3. AUTO-CREATE TABLES (Safe Mode)
+    # This checks for tables and creates them if missing, but DOES NOT delete data.
     with app.app_context():
         try:
-            # Import routes/models so SQLAlchemy knows what to create
-            # (We import one route file to trigger the model loading)
             from routes import auth_bp 
-            
-            # ⚠️ RESET COMMAND: Deletes old tables to fix the structure
-            # Remove 'db.drop_all()' after this deployment works!
-            db.drop_all() 
-            
-            # Create new tables with the correct columns (price, bedrooms, etc.)
             db.create_all()
-            print("✅ Database RESET and tables created successfully!")
+            print(" Database connected and tables verified!")
         except Exception as e:
-            print(f"⚠️ Error creating database tables: {e}")
+            print(f" Database connection warning: {e}")
 
     # 4. Standard Routes
     @app.route('/')
@@ -84,8 +76,8 @@ def create_app(config_name='development'):
         app.register_blueprint(maintenance_bp, url_prefix='/api/maintenance')
         app.register_blueprint(notifications_bp, url_prefix='/api/notifications')
     except ImportError as e:
-        print(f"⚠️ Warning: Could not import blueprints. {e}")
+        print(f" Warning: Could not import blueprints. {e}")
     except Exception as e:
-        print(f"⚠️ Warning: Blueprint registration failed. {e}")
+        print(f" Warning: Blueprint registration failed. {e}")
     
     return app
