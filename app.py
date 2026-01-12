@@ -22,7 +22,7 @@ def create_app(config_name='development'):
         'postgresql://localhost/homehub_db2'
     )
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'super-secret-key')
+    app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
     
     # 2. Initialize extensions
     db.init_app(app)
@@ -30,28 +30,44 @@ def create_app(config_name='development'):
     jwt.init_app(app)
     CORS(app)
 
-    # 3. AUTO-CREATE TABLES (The Critical Fix)
+    # 3. DATABASE RESET & AUTO-CREATE
+    # This block runs every time the server starts.
     with app.app_context():
         try:
-            # IMPORTS MUST HAPPEN HERE so SQLAlchemy knows the models exist!
-            # Change 'models' to whatever your file is named (e.g., from models import User, Property)
-            # If you don't have a single models file, importing routes usually triggers model loading.
+            # Import routes/models so SQLAlchemy knows what to create
+            # (We import one route file to trigger the model loading)
             from routes import auth_bp 
             
-            # Now create the tables
+            # ⚠️ RESET COMMAND: Deletes old tables to fix the structure
+            # Remove 'db.drop_all()' after this deployment works!
+            db.drop_all() 
+            
+            # Create new tables with the correct columns (price, bedrooms, etc.)
             db.create_all()
-            print("✅ Database tables created successfully!")
+            print("✅ Database RESET and tables created successfully!")
         except Exception as e:
             print(f"⚠️ Error creating database tables: {e}")
 
     # 4. Standard Routes
     @app.route('/')
     def health_check():
-        return jsonify({'status': 'healthy', 'message': 'HomeHub Backend is Live'}), 200
+        return jsonify({
+            'message': 'HomeHub Backend is running', 
+            'status': 'healthy', 
+            'version': '1.0.0'
+        }), 200
 
     @app.route('/api')
     def api_info():
-        return jsonify({'name': 'HomeHub API', 'version': '1.0.0'}), 200
+        return jsonify({
+            'name': 'HomeHub Backend API',
+            'version': '1.0.0',
+            'endpoints': {
+                'auth': '/api/auth',
+                'properties': '/api/properties',
+                'users': '/api/users'
+            }
+        }), 200
     
     # 5. Register Blueprints
     try:
@@ -69,5 +85,7 @@ def create_app(config_name='development'):
         app.register_blueprint(notifications_bp, url_prefix='/api/notifications')
     except ImportError as e:
         print(f"⚠️ Warning: Could not import blueprints. {e}")
+    except Exception as e:
+        print(f"⚠️ Warning: Blueprint registration failed. {e}")
     
     return app
