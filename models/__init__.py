@@ -53,7 +53,9 @@ class Property(db.Model):
     
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     landlord_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
-    name = db.Column(db.String(255), nullable=False)
+    
+    # --- EXISTING FIELDS ---
+    name = db.Column(db.String(255), nullable=False) # Maps to 'title' in frontend
     address = db.Column(db.String(500), nullable=False)
     city = db.Column(db.String(100), nullable=False)
     country = db.Column(db.String(100), nullable=False)
@@ -64,6 +66,17 @@ class Property(db.Model):
     evidence_of_ownership = db.Column(db.String(500), nullable=True)
     lrn_no = db.Column(db.String(50), nullable=True)
     location = db.Column(db.String(255), nullable=True)
+    
+    # --- NEW FIELDS (Required for Frontend) ---
+    state = db.Column(db.String(100)) # County
+    price = db.Column(db.Float, nullable=True) # Rent Amount
+    bedrooms = db.Column(db.Integer, nullable=True)
+    bathrooms = db.Column(db.Integer, nullable=True)
+    square_feet = db.Column(db.Integer, nullable=True)
+    property_type = db.Column(db.String(50), default='apartment')
+    amenities = db.Column(db.Text, nullable=True)
+    # ------------------------------------------
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -74,6 +87,7 @@ class Property(db.Model):
         return {
             'id': self.id,
             'landlord_id': self.landlord_id,
+            'title': self.name, # FRONTEND expects 'title', DB has 'name'
             'name': self.name,
             'address': self.address,
             'city': self.city,
@@ -85,9 +99,20 @@ class Property(db.Model):
             'evidence_of_ownership': self.evidence_of_ownership,
             'lrn_no': self.lrn_no,
             'location': self.location,
+            
+            # Add new fields to dictionary
+            'state': self.state,
+            'price': self.price,
+            'bedrooms': self.bedrooms,
+            'bathrooms': self.bathrooms,
+            'square_feet': self.square_feet,
+            'property_type': self.property_type,
+            'amenities': self.amenities,
+            
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
+    
 
 
 class Unit(db.Model):
