@@ -1,19 +1,14 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from models import MaintenanceRequest, Unit, User
+from models import MaintenanceRequest, Unit, User, Notification, Lease # 👈 Added Notification & Lease imports
 
 maintenance_bp = Blueprint('maintenance', __name__)
 
+# --- 1. GET ALL REQUESTS ---
 @maintenance_bp.route('', methods=['GET'])
 @jwt_required()
 def get_all_requests():
-    """
-    Get all maintenance requests
-    ---
-    security:
-      - Bearer: []
-    """
     current_user = User.query.get(get_jwt_identity())
     
     if current_user.role == 'admin':
@@ -25,29 +20,10 @@ def get_all_requests():
     
     return jsonify([req.to_dict() for req in requests]), 200
 
+# --- 2. CREATE REQUEST (With Notification Trigger) ---
 @maintenance_bp.route('', methods=['POST'])
 @jwt_required()
 def create_request():
-    """
-    Create new maintenance request (Tenant only)
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          properties:
-            unit_id:
-              type: string
-            title:
-              type: string
-            description:
-              type: string
-            image_url:
-              type: string
-    """
     current_user = User.query.get(get_jwt_identity())
     data = request.get_json()
     
@@ -56,7 +32,6 @@ def create_request():
         return jsonify({'error': 'Unit not found'}), 404
     
     # Get active lease for this tenant and unit
-    from models import Lease
     lease = Lease.query.filter_by(unit_id=unit.id, tenant_id=current_user.id, status='active').first()
     if not lease:
         return jsonify({'error': 'No active lease found for this unit'}), 403
@@ -76,24 +51,24 @@ def create_request():
     )
     
     db.session.add(maintenance_request)
+    
+    # 🔔 TRIGGER: Notify Landlord
+    alert_landlord = Notification(
+        user_id=current_user.id,                # Sender: Tenant
+        recipient_user_id=unit.property.landlord_id, # Recipient: Landlord
+        type='alert',
+        message=f"Maintenance: New request '{data['title']}' for Unit {unit.unit_number}"
+    )
+    db.session.add(alert_landlord)
+
     db.session.commit()
     
     return jsonify({'message': 'Maintenance request created successfully', 'request': maintenance_request.to_dict()}), 201
 
+# --- 3. GET SINGLE REQUEST ---
 @maintenance_bp.route('/<request_id>', methods=['GET'])
 @jwt_required()
 def get_request(request_id):
-    """
-    Get maintenance request by ID
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: request_id
-        in: path
-        type: string
-        required: true
-    """
     maintenance_request = MaintenanceRequest.query.get(request_id)
     
     if not maintenance_request:
@@ -101,26 +76,10 @@ def get_request(request_id):
     
     return jsonify(maintenance_request.to_dict()), 200
 
-@maintenance_bp.route('/<request_id>', methods=['PUT'])
+# --- 4. UPDATE STATUS (With Notification Trigger) ---
+@maintenance_bp.route('/<request_id>', methods=['PUT']) # User kept PUT, so we keep PUT
 @jwt_required()
 def update_request(request_id):
-    """
-    Update maintenance request status (Landlord/Admin only)
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: request_id
-        in: path
-        type: string
-        required: true
-      - name: body
-        in: body
-        schema:
-          properties:
-            status:
-              type: string
-    """
     current_user = User.query.get(get_jwt_identity())
     maintenance_request = MaintenanceRequest.query.get(request_id)
     
@@ -134,35 +93,28 @@ def update_request(request_id):
     
     if 'status' in data:
         maintenance_request.status = data['status']
+        
+        # 🔔 TRIGGER: Notify Tenant
+        # Only notify if status actually changed
+        alert_tenant = Notification(
+            user_id=current_user.id,               # Sender: Landlord
+            recipient_user_id=maintenance_request.tenant_id, # Recipient: Tenant
+            type='info',
+            message=f"Maintenance Update: Your request '{maintenance_request.title}' is now {data['status']}"
+        )
+        db.session.add(alert_tenant)
     
     db.session.commit()
     
     return jsonify({'message': 'Request updated successfully', 'request': maintenance_request.to_dict()}), 200
 
+# --- 5. HELPER ROUTES ---
 @maintenance_bp.route('/unit/<unit_id>', methods=['GET'])
 def get_unit_requests(unit_id):
-    """
-    Get all maintenance requests for a unit
-    ---
-    parameters:
-      - name: unit_id
-        in: path
-        type: string
-        required: true
-    """
     requests = MaintenanceRequest.query.filter_by(unit_id=unit_id).all()
     return jsonify([req.to_dict() for req in requests]), 200
 
 @maintenance_bp.route('/tenant/<tenant_id>', methods=['GET'])
 def get_tenant_requests(tenant_id):
-    """
-    Get all maintenance requests by a tenant
-    ---
-    parameters:
-      - name: tenant_id
-        in: path
-        type: string
-        required: true
-    """
     requests = MaintenanceRequest.query.filter_by(tenant_id=tenant_id).all()
     return jsonify([req.to_dict() for req in requests]), 200
