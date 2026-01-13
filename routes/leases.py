@@ -1,184 +1,106 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from models import Lease, Unit, User
-from datetime import datetime
+from models import Lease, Property, User
+from datetime import datetime, timedelta
 
 leases_bp = Blueprint('leases', __name__)
 
+# --- 1. GET ALL LEASES (Smart Filter) ---
 @leases_bp.route('', methods=['GET'])
 @jwt_required()
 def get_all_leases():
-    """
-    Get all leases
-    ---
-    security:
-      - Bearer: []
-    """
     current_user = User.query.get(get_jwt_identity())
     
     if current_user.role == 'admin':
         leases = Lease.query.all()
     elif current_user.role == 'landlord':
-        leases = Lease.query.join(Unit).join(Property).filter(Property.landlord_id == current_user.id).all()
-    else:  # tenant
+        # Find leases for properties owned by this landlord
+        leases = db.session.query(Lease).join(Property, Lease.unit_id == Property.id)\
+            .filter(Property.landlord_id == current_user.id).all()
+    else: # Tenant
         leases = Lease.query.filter_by(tenant_id=current_user.id).all()
-    
-    return jsonify([lease.to_dict() for lease in leases]), 200
 
+    # Enhance data with Property Titles
+    output = []
+    for lease in leases:
+        data = lease.to_dict()
+        prop = Property.query.get(lease.unit_id)
+        if prop:
+            data['property_title'] = prop.name
+            data['property_city'] = prop.city
+            
+            # If Landlord, include Tenant Name
+            if current_user.role == 'landlord':
+                tenant = User.query.get(lease.tenant_id)
+                data['tenant_name'] = tenant.full_name if tenant else "Unknown"
+                
+        output.append(data)
+    
+    return jsonify(output), 200
+
+# --- 2. CREATE APPLICATION (The "Apply" Button) ---
 @leases_bp.route('', methods=['POST'])
 @jwt_required()
-def create_lease():
-    """
-    Create new lease
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          properties:
-            unit_id:
-              type: string
-            tenant_id:
-              type: string
-            start_date:
-              type: string
-            end_date:
-              type: string
-            monthly_rent:
-              type: number
-            deposit:
-              type: number
-            document_url:
-              type: string
-    """
-    current_user = User.query.get(get_jwt_identity())
+def create_lease_application():
+    current_user_id = get_jwt_identity()
     data = request.get_json()
     
-    unit = Unit.query.get(data.get('unit_id'))
-    if not unit:
-        return jsonify({'error': 'Unit not found'}), 404
-    
-    property = unit.property
-    if property.landlord_id != current_user.id and current_user.role != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    required_fields = ['unit_id', 'tenant_id', 'start_date', 'end_date', 'monthly_rent', 'deposit']
-    if not all(field in data for field in required_fields):
-        return jsonify({'error': 'Missing required fields'}), 400
-    
-    lease = Lease(
-        unit_id=data['unit_id'],
-        tenant_id=data['tenant_id'],
-        start_date=datetime.fromisoformat(data['start_date']).date(),
-        end_date=datetime.fromisoformat(data['end_date']).date(),
-        monthly_rent=data['monthly_rent'],
-        deposit=data['deposit'],
-        document_url=data.get('document_url'),
-        status='active'
+    # 1. Validate Property
+    # Note: We use property_id as unit_id for now
+    prop_id = data.get('property_id') or data.get('unit_id')
+    if not prop_id:
+        return jsonify({'error': 'Property ID is required'}), 400
+
+    property = Property.query.get(prop_id)
+    if not property: return jsonify({'error': 'Property not found'}), 404
+
+    # 2. Check for Duplicates
+    existing = Lease.query.filter_by(tenant_id=current_user_id, unit_id=property.id, status='pending').first()
+    if existing:
+        return jsonify({'error': 'Application already pending'}), 400
+
+    # 3. Create Lease with DEFAULTS (Smart Logic)
+    # We set default dates to "Today" + "1 Year"
+    start_date = datetime.utcnow()
+    end_date = start_date + timedelta(days=365)
+
+    new_lease = Lease(
+        unit_id=property.id,
+        tenant_id=current_user_id,
+        start_date=start_date,
+        end_date=end_date,
+        monthly_rent=property.price,
+        deposit=property.price, 
+        status='pending' # Important: It is just a request
     )
     
-    db.session.add(lease)
-    unit.status = 'occupied'
+    db.session.add(new_lease)
     db.session.commit()
     
-    return jsonify({'message': 'Lease created successfully', 'lease': lease.to_dict()}), 201
+    return jsonify({'message': 'Application submitted', 'lease': new_lease.to_dict()}), 201
 
-@leases_bp.route('/<lease_id>', methods=['GET'])
+# --- 3. LANDLORD ACTIONS (Approve/Reject) ---
+@leases_bp.route('/<lease_id>/status', methods=['POST'])
 @jwt_required()
-def get_lease(lease_id):
-    """
-    Get lease by ID
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: lease_id
-        in: path
-        type: string
-        required: true
-    """
-    lease = Lease.query.get(lease_id)
-    
-    if not lease:
-        return jsonify({'error': 'Lease not found'}), 404
-    
-    return jsonify(lease.to_dict()), 200
-
-@leases_bp.route('/<lease_id>', methods=['PUT'])
-@jwt_required()
-def update_lease(lease_id):
-    """
-    Update lease
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: lease_id
-        in: path
-        type: string
-        required: true
-      - name: body
-        in: body
-        schema:
-          properties:
-            status:
-              type: string
-            end_date:
-              type: string
-    """
+def update_lease_status(lease_id):
     current_user = User.query.get(get_jwt_identity())
-    lease = Lease.query.get(lease_id)
-    
-    if not lease:
-        return jsonify({'error': 'Lease not found'}), 404
-    
-    unit = lease.unit
-    property = unit.property
-    if property.landlord_id != current_user.id and current_user.role != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 403
-    
     data = request.get_json()
-    
-    if 'status' in data:
-        lease.status = data['status']
-        if data['status'] == 'terminated' or data['status'] == 'expired':
-            unit.status = 'vacant'
-    
-    if 'end_date' in data:
-        lease.end_date = datetime.fromisoformat(data['end_date']).date()
+    action = data.get('status') # 'approved' or 'rejected'
+
+    lease = Lease.query.get(lease_id)
+    if not lease: return jsonify({'error': 'Lease not found'}), 404
+
+    # Verify Landlord owns the property
+    prop = Property.query.get(lease.unit_id)
+    if prop.landlord_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    if action == 'approved':
+        lease.status = 'active'
+        prop.status = 'occupied' # Mark house as taken
+    elif action == 'rejected':
+        lease.status = 'rejected'
     
     db.session.commit()
-    
-    return jsonify({'message': 'Lease updated successfully', 'lease': lease.to_dict()}), 200
-
-@leases_bp.route('/tenant/<tenant_id>', methods=['GET'])
-def get_tenant_leases(tenant_id):
-    """
-    Get all leases for a tenant
-    ---
-    parameters:
-      - name: tenant_id
-        in: path
-        type: string
-        required: true
-    """
-    leases = Lease.query.filter_by(tenant_id=tenant_id).all()
-    return jsonify([lease.to_dict() for lease in leases]), 200
-
-@leases_bp.route('/unit/<unit_id>', methods=['GET'])
-def get_unit_leases(unit_id):
-    """
-    Get all leases for a unit
-    ---
-    parameters:
-      - name: unit_id
-        in: path
-        type: string
-        required: true
-    """
-    leases = Lease.query.filter_by(unit_id=unit_id).all()
-    return jsonify([lease.to_dict() for lease in leases]), 200
+    return jsonify({'message': f'Lease {action}'}), 200
