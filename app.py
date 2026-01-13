@@ -24,6 +24,15 @@ def create_app(config_name='development'):
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
     
+    # 📂 CONFIGURE UPLOAD FOLDER (New)
+    # This creates a folder named 'uploads' in your backend directory
+    UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+        
+    app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Limit max size to 16MB
+    
     # 2. Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
@@ -31,7 +40,6 @@ def create_app(config_name='development'):
     CORS(app)
 
     # 3. AUTO-CREATE TABLES (Safe Mode)
-    # This checks for tables and creates them if missing, but DOES NOT delete data.
     with app.app_context():
         try:
             from routes import auth_bp 
@@ -57,14 +65,16 @@ def create_app(config_name='development'):
             'endpoints': {
                 'auth': '/api/auth',
                 'properties': '/api/properties',
-                'users': '/api/users'
+                'users': '/api/users',
+                'uploads': '/uploads'
             }
         }), 200
     
     # 5. Register Blueprints
     try:
+        # Added upload_bp to imports
         from routes import auth_bp, users_bp, properties_bp, units_bp, leases_bp, \
-            rent_invoices_bp, payments_bp, maintenance_bp, notifications_bp
+            rent_invoices_bp, payments_bp, maintenance_bp, notifications_bp, upload_bp
     
         app.register_blueprint(auth_bp, url_prefix='/api/auth')
         app.register_blueprint(users_bp, url_prefix='/api/users')
@@ -75,6 +85,10 @@ def create_app(config_name='development'):
         app.register_blueprint(payments_bp, url_prefix='/api/payments')
         app.register_blueprint(maintenance_bp, url_prefix='/api/maintenance')
         app.register_blueprint(notifications_bp, url_prefix='/api/notifications')
+        
+        # Register Uploads (Note: Prefix is /uploads, not /api/uploads for easier image serving)
+        app.register_blueprint(upload_bp, url_prefix='/uploads')
+        
     except ImportError as e:
         print(f" Warning: Could not import blueprints. {e}")
     except Exception as e:
