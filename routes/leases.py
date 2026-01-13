@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from models import Lease, Property, User
+from models import Lease, Property, User, Notification  # 👈 Added Notification
 from datetime import datetime, timedelta
 
 leases_bp = Blueprint('leases', __name__)
@@ -47,7 +47,6 @@ def create_lease_application():
     data = request.get_json()
     
     # 1. Validate Property
-    # Note: We use property_id as unit_id for now
     prop_id = data.get('property_id') or data.get('unit_id')
     if not prop_id:
         return jsonify({'error': 'Property ID is required'}), 400
@@ -60,8 +59,7 @@ def create_lease_application():
     if existing:
         return jsonify({'error': 'Application already pending'}), 400
 
-    # 3. Create Lease with DEFAULTS (Smart Logic)
-    # We set default dates to "Today" + "1 Year"
+    # 3. Create Lease with DEFAULTS
     start_date = datetime.utcnow()
     end_date = start_date + timedelta(days=365)
 
@@ -72,10 +70,21 @@ def create_lease_application():
         end_date=end_date,
         monthly_rent=property.price,
         deposit=property.price, 
-        status='pending' # Important: It is just a request
+        status='pending'
     )
     
     db.session.add(new_lease)
+
+    # 🔔 TRIGGER: Notify Landlord
+    # We alert the landlord that someone applied
+    alert_landlord = Notification(
+        user_id=current_user_id,                # Sender: Tenant (Current User)
+        recipient_user_id=property.landlord_id, # Recipient: Landlord
+        type='alert',
+        message=f"New Application: A tenant has applied for {property.name}."
+    )
+    db.session.add(alert_landlord)
+
     db.session.commit()
     
     return jsonify({'message': 'Application submitted', 'lease': new_lease.to_dict()}), 201
@@ -102,5 +111,15 @@ def update_lease_status(lease_id):
     elif action == 'rejected':
         lease.status = 'rejected'
     
+    # 🔔 TRIGGER: Notify Tenant
+    # We alert the tenant about the decision
+    alert_tenant = Notification(
+        user_id=current_user.id,           # Sender: Landlord (Current User)
+        recipient_user_id=lease.tenant_id, # Recipient: Tenant
+        type='success' if action == 'approved' else 'alert',
+        message=f"Update: Your application for {prop.name} was {action}."
+    )
+    db.session.add(alert_tenant)
+
     db.session.commit()
     return jsonify({'message': f'Lease {action}'}), 200
