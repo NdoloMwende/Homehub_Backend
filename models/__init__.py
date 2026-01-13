@@ -84,6 +84,15 @@ class Property(db.Model):
     units = db.relationship('Unit', backref='property', lazy=True, cascade='all, delete-orphan')
     
     def to_dict(self):
+        # 🟢 NEW: Fetch Landlord details safely using the 'landlord' backref from User model
+        landlord_data = {}
+        if self.landlord:
+            landlord_data = {
+                'landlord_name': self.landlord.full_name,
+                'landlord_email': self.landlord.email,
+                'landlord_phone': self.landlord.phone
+            }
+
         return {
             'id': self.id,
             'landlord_id': self.landlord_id,
@@ -109,10 +118,12 @@ class Property(db.Model):
             'property_type': self.property_type,
             'amenities': self.amenities,
             
+            # 🟢 Include Landlord Info
+            **landlord_data,
+
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
-    
 
 
 class Unit(db.Model):
