@@ -1,19 +1,60 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from models import User
+# 1. UPDATED IMPORTS: Added Lease and Property for safety checks
+from models import User, Lease, Property
 
 users_bp = Blueprint('users', __name__)
 
+# --- 1. GET CURRENT USER (For Settings Page) ---
+@users_bp.route('/me', methods=['GET'])
+@jwt_required()
+def get_current_user():
+    """Get the currently logged-in user's profile"""
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    return jsonify(user.to_dict()), 200
+
+# --- 2. DELETE ACCOUNT (New Feature) ---
+@users_bp.route('/me', methods=['DELETE'])
+@jwt_required()
+def delete_account():
+    """
+    Permanently delete account.
+    - Landlords cannot delete if they own active properties.
+    - Tenants cannot delete if they have active leases.
+    """
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    # SAFETY CHECK: Prevent breaking data integrity
+    if user.role == 'landlord':
+        # Check if they own properties
+        active_props = Property.query.filter_by(landlord_id=user.id).first()
+        if active_props:
+            return jsonify({'error': 'Cannot delete account while you have listed properties. Please delete them first.'}), 400
+            
+    elif user.role == 'tenant':
+        # Check if they have an active lease
+        active_lease = Lease.query.filter_by(tenant_id=user.id, status='active').first()
+        if active_lease:
+            return jsonify({'error': 'Cannot delete account with an active lease. Please contact your landlord.'}), 400
+
+    # If safe, delete user
+    db.session.delete(user)
+    db.session.commit()
+    
+    return jsonify({'message': 'Account deleted successfully'}), 200
+
+# --- 3. GET ALL USERS (Admin Only) ---
 @users_bp.route('', methods=['GET'])
 @jwt_required()
 def get_all_users():
-    """
-    Get all users (Admin only)
-    ---
-    security:
-      - Bearer: []
-    """
     current_user = User.query.get(get_jwt_identity())
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
@@ -21,20 +62,10 @@ def get_all_users():
     users = User.query.all()
     return jsonify([user.to_dict() for user in users]), 200
 
+# --- 4. GET USER BY ID ---
 @users_bp.route('/<user_id>', methods=['GET'])
 @jwt_required()
 def get_user(user_id):
-    """
-    Get user by ID
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: user_id
-        in: path
-        type: string
-        required: true
-    """
     user = User.query.get(user_id)
     
     if not user:
@@ -42,125 +73,60 @@ def get_user(user_id):
     
     return jsonify(user.to_dict()), 200
 
+# --- 5. UPDATE USER PROFILE ---
 @users_bp.route('/<user_id>', methods=['PUT'])
 @jwt_required()
 def update_user(user_id):
-    """
-    Update user profile
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: user_id
-        in: path
-        type: string
-        required: true
-      - name: body
-        in: body
-        schema:
-          properties:
-            full_name:
-              type: string
-            phone:
-              type: string
-            profile_image_url:
-              type: string
-            national_id:
-              type: string
-            kra_pin:
-              type: string
-    """
     current_user_id = get_jwt_identity()
     user = User.query.get(user_id)
     
     if not user:
         return jsonify({'error': 'User not found'}), 404
     
-    # Users can only update their own profile
+    # Users can only update their own profile (unless admin)
     current_user = User.query.get(current_user_id)
     if current_user_id != user_id and current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
     
     data = request.get_json()
     
-    if 'full_name' in data:
-        user.full_name = data['full_name']
-    if 'phone' in data:
-        user.phone = data['phone']
-    if 'profile_image_url' in data:
-        user.profile_image_url = data['profile_image_url']
-    if 'national_id' in data:
-        user.national_id = data['national_id']
-    if 'kra_pin' in data:
-        user.kra_pin = data['kra_pin']
+    if 'full_name' in data: user.full_name = data['full_name']
+    if 'phone' in data: user.phone = data['phone']
+    if 'profile_image_url' in data: user.profile_image_url = data['profile_image_url']
+    if 'national_id' in data: user.national_id = data['national_id']
+    if 'kra_pin' in data: user.kra_pin = data['kra_pin']
     
     db.session.commit()
-    
     return jsonify({'message': 'User updated successfully', 'user': user.to_dict()}), 200
 
+# --- 6. APPROVE USER (Admin Only) ---
 @users_bp.route('/<user_id>/approve', methods=['POST'])
 @jwt_required()
 def approve_user(user_id):
-    """
-    Approve user (Admin only)
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: user_id
-        in: path
-        type: string
-        required: true
-      - name: body
-        in: body
-        schema:
-          properties:
-            comment:
-              type: string
-    """
     current_user = User.query.get(get_jwt_identity())
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
     
     user = User.query.get(user_id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
+    if not user: return jsonify({'error': 'User not found'}), 404
     
     data = request.get_json() or {}
     user.status = 'approved'
     user.comment = data.get('comment')
     
     db.session.commit()
-    
     return jsonify({'message': 'User approved successfully', 'user': user.to_dict()}), 200
 
+# --- 7. REJECT USER (Admin Only) ---
 @users_bp.route('/<user_id>/reject', methods=['POST'])
 @jwt_required()
 def reject_user(user_id):
-    """
-    Reject user (Admin only)
-    ---
-    security:
-      - Bearer: []
-    parameters:
-      - name: user_id
-        in: path
-        type: string
-        required: true
-      - name: body
-        in: body
-        schema:
-          properties:
-            comment:
-              type: string
-    """
     current_user = User.query.get(get_jwt_identity())
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
     
     user = User.query.get(user_id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
+    if not user: return jsonify({'error': 'User not found'}), 404
     
     data = request.get_json() or {}
     user.status = 'rejected'
@@ -168,5 +134,4 @@ def reject_user(user_id):
     user.is_active = False
     
     db.session.commit()
-    
     return jsonify({'message': 'User rejected', 'user': user.to_dict()}), 200
