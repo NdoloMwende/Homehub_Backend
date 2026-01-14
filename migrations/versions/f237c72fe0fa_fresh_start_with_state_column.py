@@ -1,8 +1,8 @@
-"""Initial migration
+"""Fresh start with state column
 
-Revision ID: 5fc00a87627c
+Revision ID: f237c72fe0fa
 Revises: 
-Create Date: 2026-01-02 20:00:20.557262
+Create Date: 2026-01-14 00:06:14.496094
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '5fc00a87627c'
+revision = 'f237c72fe0fa'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -63,6 +63,13 @@ def upgrade():
     sa.Column('evidence_of_ownership', sa.String(length=500), nullable=True),
     sa.Column('lrn_no', sa.String(length=50), nullable=True),
     sa.Column('location', sa.String(length=255), nullable=True),
+    sa.Column('state', sa.String(length=100), nullable=True),
+    sa.Column('price', sa.Float(), nullable=True),
+    sa.Column('bedrooms', sa.Integer(), nullable=True),
+    sa.Column('bathrooms', sa.Integer(), nullable=True),
+    sa.Column('square_feet', sa.Integer(), nullable=True),
+    sa.Column('property_type', sa.String(length=50), nullable=True),
+    sa.Column('amenities', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['landlord_id'], ['users.id'], ),

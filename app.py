@@ -6,6 +6,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import os
 
+# 1. Load environment variables immediately
 load_dotenv()
 
 # Initialize extensions globally
@@ -16,39 +17,36 @@ jwt = JWTManager()
 def create_app(config_name='development'):
     app = Flask(__name__)
     
-    # 1. Configuration
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
-        'DATABASE_URL',
-        'postgresql://localhost/homehub_db2'
-    )
+    # 2. Get the Database URL
+    db_url = os.getenv('DATABASE_URL')
+
+    # 🔴 THE MISSING FIX FOR RENDER:
+    if db_url and db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+    # 3. Print it to the terminal (so you can prove it's the Cloud DB)
+    print(f"👀 Flask connecting to: {db_url or 'Local Default'}")
+
+    # 4. Configure App
+    app.config['SQLALCHEMY_DATABASE_URI'] = db_url or 'postgresql://localhost/homehub_db2'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
     
-    # 📂 CONFIGURE UPLOAD FOLDER (New)
-    # This creates a folder named 'uploads' in your backend directory
+    # Configure Upload Folder
     UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
         
     app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Limit max size to 16MB
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
     
-    # 2. Initialize extensions
+    # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
     CORS(app)
 
-    # 3. AUTO-CREATE TABLES (Safe Mode)
-    with app.app_context():
-        try:
-            from routes import auth_bp 
-            db.create_all()
-            print(" Database connected and tables verified!")
-        except Exception as e:
-            print(f" Database connection warning: {e}")
-
-    # 4. Standard Routes
+    # Standard Routes
     @app.route('/')
     def health_check():
         return jsonify({
@@ -70,9 +68,8 @@ def create_app(config_name='development'):
             }
         }), 200
     
-    # 5. Register Blueprints
+    # Register Blueprints
     try:
-        # Added upload_bp to imports
         from routes import auth_bp, users_bp, properties_bp, units_bp, leases_bp, \
             rent_invoices_bp, payments_bp, maintenance_bp, notifications_bp, upload_bp
     
@@ -85,8 +82,6 @@ def create_app(config_name='development'):
         app.register_blueprint(payments_bp, url_prefix='/api/payments')
         app.register_blueprint(maintenance_bp, url_prefix='/api/maintenance')
         app.register_blueprint(notifications_bp, url_prefix='/api/notifications')
-        
-        # Register Uploads (Note: Prefix is /uploads, not /api/uploads for easier image serving)
         app.register_blueprint(upload_bp, url_prefix='/uploads')
         
     except ImportError as e:
