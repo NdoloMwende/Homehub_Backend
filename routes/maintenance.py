@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from extensions import db
 from models import MaintenanceRequest, Lease, Property, User, Notification, Unit
-from sqlalchemy import cast, String, func # 🟢 Added func for lowercase check
+from sqlalchemy import cast, String
 
 maintenance_bp = Blueprint('maintenance', __name__)
 
@@ -31,7 +31,8 @@ def get_requests():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# --- 2. CREATE REQUEST ---
+
+# --- 2. CREATE REQUEST (The Fuzzy Fix) ---
 @maintenance_bp.route('', methods=['POST'])
 @jwt_required()
 def create_request():
@@ -39,29 +40,41 @@ def create_request():
         current_user_id = get_jwt_identity()
         data = request.get_json()
         
-        print(f"🔍 DEBUG: Attempting to find active lease for Tenant {current_user_id}")
+        print(f"🔍 DEBUG: Maintenance submit from Tenant {current_user_id}")
 
-        # 🟢 CRITICAL FIX: Case-Insensitive Status Check
-        # Uses func.lower() to match 'Active', 'active', or 'ACTIVE'
-        active_lease = Lease.query.filter(
-            cast(Lease.tenant_id, String) == str(current_user_id),
-            func.lower(Lease.status) == 'active' 
-        ).first()
+        # 🟢 STEP 1: Fetch ALL leases for this tenant (Ignore status for now)
+        all_leases = Lease.query.filter(
+            cast(Lease.tenant_id, String) == str(current_user_id)
+        ).all()
 
-        if not active_lease:
-            # 🟢 DEBUG: If it fails, print why to the terminal
-            print("❌ DEBUG: No active lease found. Checking DB contents...")
-            all_leases = Lease.query.filter(cast(Lease.tenant_id, String) == str(current_user_id)).all()
-            for l in all_leases:
-                print(f"   - Found Lease ID: {l.id} | Status: '{l.status}' (Match Failed)")
+        print(f"   - Found {len(all_leases)} total leases.")
+
+        # 🟢 STEP 2: Python "Fuzzy Search" for the Active Lease
+        # This handles 'Active', 'active', 'ACTIVE', ' active ', etc.
+        active_lease = None
+        for lease in all_leases:
+            # Clean up the status string
+            status_clean = str(lease.status).strip().lower()
+            print(f"   - Checking Lease {lease.id}: Status='{lease.status}' (Clean='{status_clean}')")
             
-            return jsonify({'error': 'Failed. Ensure you have an active lease.'}), 403
+            if status_clean == 'active':
+                active_lease = lease
+                break
+        
+        # 🟢 STEP 3: Handle "No Lease Found"
+        if not active_lease:
+            # If we fail, tell the user exactly what we found (Debug help)
+            found_statuses = [l.status for l in all_leases]
+            error_msg = f"No Active Lease found. Your leases are: {found_statuses}"
+            print(f"❌ {error_msg}")
+            return jsonify({'error': error_msg}), 403
 
-        print(f"✅ DEBUG: Found Active Lease {active_lease.id}")
+        print(f"✅ FOUND ACTIVE LEASE: {active_lease.id} (Unit {active_lease.unit_id})")
 
+        # 🟢 STEP 4: Create Request (Backend provides the Unit ID automatically)
         new_request = MaintenanceRequest(
             tenant_id=current_user_id,
-            unit_id=active_lease.unit_id,
+            unit_id=active_lease.unit_id, # INFERRED from the lease
             title=data.get('title'),
             description=data.get('description'),
             priority=data.get('priority', 'medium'),
@@ -70,7 +83,7 @@ def create_request():
 
         db.session.add(new_request)
         
-        # Notify Landlord logic
+        # Notify Landlord
         unit = Unit.query.get(active_lease.unit_id)
         if unit:
             prop = Property.query.get(unit.property_id)
@@ -81,12 +94,16 @@ def create_request():
                 ))
 
         db.session.commit()
-        return jsonify({'message': 'Request submitted successfully', 'request': new_request.to_dict()}), 201
+        return jsonify({
+            'message': 'Request submitted successfully!', 
+            'request': new_request.to_dict()
+        }), 201
 
     except Exception as e:
         db.session.rollback()
-        print(f"❌ ERROR: {str(e)}")
+        print(f"❌ SYSTEM ERROR: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 # --- 3. UPDATE REQUEST (Landlord) ---
 @maintenance_bp.route('/<int:request_id>', methods=['PATCH'])
