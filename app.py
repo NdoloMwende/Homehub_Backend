@@ -1,4 +1,5 @@
 import os
+from extensions import db
 from flask import Flask, send_from_directory  # 👈 Added send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
