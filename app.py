@@ -6,25 +6,30 @@ from flask_jwt_extended import JWTManager
 from datetime import timedelta
 from dotenv import load_dotenv
 
-# 🟢 FIX 1: Import db strictly from extensions to avoid circular imports
+# 🟢 IMPORT FROM EXTENSIONS (Matches your models.py setup)
 from extensions import db
-# Import models to ensure they are registered with SQLAlchemy
 from models import User, Property, Unit, Lease
 
+# Load environment variables
 load_dotenv()
 
 def create_app():
     app = Flask(__name__)
 
     # --- CONFIGURATION ---
+    # Database connection for PostgreSQL on Render or local SQLite
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///homehub.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+    # Security Keys
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'super-secret-key-change-this')
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
+
+    # File Uploads
     app.config['UPLOAD_FOLDER'] = os.path.join(os.getcwd(), 'uploads')
 
     # --- INITIALIZE EXTENSIONS ---
-    # 🟢 FIX 2: Enhanced CORS to handle Preflight (OPTIONS) requests
+    # 🟢 FIXED CORS: Specifically allows your Render frontend to prevent 'Preflight' errors
     CORS(app, resources={r"/api/*": {
         "origins": [
             "https://homehub-project.onrender.com", 
@@ -39,18 +44,17 @@ def create_app():
     migrate = Migrate(app, db)
     jwt = JWTManager(app)
 
-    # 🟢 FIX 3: Global Header Handler
-    # This ensures that even if a blueprint fails, the CORS headers are sent back
+    # 🟢 HEADER HANDLER: Ensures every response includes the necessary CORS headers
     @app.after_request
     def after_request(response):
-        origin = app.config.get('FRONTEND_URL', 'https://homehub-project.onrender.com')
-        response.headers.add('Access-Control-Allow-Origin', origin)
+        # Dynamically allow your production frontend
+        response.headers.add('Access-Control-Allow-Origin', 'https://homehub-project.onrender.com')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
         return response
 
-    # --- REGISTER BLUEPRINTS ---
+    # --- REGISTER BLUEPRINTS (Original Functionality Kept) ---
     from routes.auth import auth_bp
     from routes.properties import properties_bp
     from routes.leases import leases_bp
@@ -61,7 +65,8 @@ def create_app():
     app.register_blueprint(leases_bp, url_prefix='/api/leases')
     app.register_blueprint(users_bp, url_prefix='/api/users')
 
-    # --- SERVE UPLOADED FILES ---
+    # --- ROUTES (All Original Logic Maintained) ---
+    
     @app.route('/uploads/<path:filename>')
     def serve_uploaded_file(filename):
         return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
@@ -70,7 +75,7 @@ def create_app():
     def index():
         return "HomeHub Backend is Running! 🚀"
 
-    # --- SEED ROUTE ---
+    # --- TEMPORARY SEED ROUTE (Original logic for Force Seed) ---
     @app.route('/api/admin/force-seed-db-123')
     def force_seed():
         try:
@@ -82,10 +87,11 @@ def create_app():
 
     return app
 
+# Entry point
 if __name__ == '__main__':
     app = create_app()
-    
-    # Ensure upload folder exists
+
+    # Ensure upload folder exists on startup
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
