@@ -73,7 +73,7 @@ if __name__ == '__main__':
 
     # --- TEMPORARY SEED ROUTE (Delete after use) ---
     @app.route('/api/admin/force-seed-db-123')
-    def force_seed():
+def force_seed():
     try:
         from seed import seed_database
         seed_database()
