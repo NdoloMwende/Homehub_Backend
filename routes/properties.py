@@ -1,7 +1,9 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from models import Property, User
+from models import Property, User, PropertyImage # 👈 Added PropertyImage
+from werkzeug.utils import secure_filename # 👈 Needed for file uploads
+import os
 
 properties_bp = Blueprint('properties', __name__)
 
@@ -9,12 +11,11 @@ properties_bp = Blueprint('properties', __name__)
 @properties_bp.route('', methods=['GET'])
 def get_all_properties():
     """ Get all properties for the public marketplace """
-    # Optionally filter by status='approved' if you want strictly vetted listings
-    # properties = Property.query.filter_by(status='approved').all()
+    # Optionally filter by status='Available' or 'approved'
     properties = Property.query.all()
     return jsonify([prop.to_dict() for prop in properties]), 200
 
-# --- 2. CREATE (Landlord Only) ---
+# --- 2. CREATE (Landlord Only) - UPDATED FOR IMAGES ---
 @properties_bp.route('', methods=['POST'])
 @jwt_required()
 def create_property():
@@ -24,34 +25,71 @@ def create_property():
     if not current_user or current_user.role != 'landlord':
         return jsonify({'error': 'Only landlords can create properties'}), 403
 
-    data = request.get_json()
+    # 1. Use request.form for Text Data (Because we are sending files too)
+    data = request.form 
     
     # Validation (Basic)
-    if not data.get('title') or not data.get('price'):
-        return jsonify({'error': 'Title and Price are required'}), 400
+    if not data.get('name') or not data.get('price'): # Changed 'title' to 'name' to match form
+        return jsonify({'error': 'Name/Title and Price are required'}), 400
 
     new_property = Property(
         landlord_id=current_user.id,
-        name=data.get('title'),    # Map 'title' to 'name'
+        name=data.get('name'), 
         address=data.get('address'),
         city=data.get('city'),
-        country='Kenya',
+        country=data.get('country', 'Kenya'),
         state=data.get('state'),
         description=data.get('description'),
+        location=data.get('location'),
         
-        # New Rental Details
-        price=data.get('price'),
-        bedrooms=data.get('bedrooms'),
-        bathrooms=data.get('bathrooms'),
-        square_feet=data.get('square_feet'),
-        property_type=data.get('property_type'),
-        amenities=data.get('amenities'), # Store as string
-        image_url=data.get('image_url'),
+        # Rental Details
+        price=float(data.get('price', 0)),
+        bedrooms=int(data.get('bedrooms', 0)),
+        bathrooms=int(data.get('bathrooms', 0)),
+        square_feet=int(data.get('square_feet', 0)) if data.get('square_feet') else None,
+        property_type=data.get('property_type', 'apartment'),
+        amenities=data.get('amenities'), 
         
-        status='pending' 
+        status='Available' 
     )
-    
+
+    # 2. Handle Main Thumbnail (Single File)
+    main_image = request.files.get('image')
+    if main_image:
+        filename = secure_filename(main_image.filename)
+        # Ensure upload folder exists
+        upload_folder = current_app.config['UPLOAD_FOLDER']
+        if not os.path.exists(upload_folder):
+            os.makedirs(upload_folder)
+            
+        save_path = os.path.join(upload_folder, filename)
+        main_image.save(save_path)
+        
+        # Save the URL (Relative path)
+        new_property.image_url = f"/uploads/{filename}"
+
+    # Commit first to generate the Property ID
     db.session.add(new_property)
+    db.session.commit()
+
+    # 3. Handle Gallery Images (Multiple Files)
+    gallery_files = request.files.getlist('gallery_images')
+    
+    for file in gallery_files:
+        if file.filename == '':
+            continue
+            
+        filename = secure_filename(file.filename)
+        save_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+        file.save(save_path)
+        
+        # Create PropertyImage record linked to this property
+        new_image = PropertyImage(
+            property_id=new_property.id,
+            image_url=f"/uploads/{filename}"
+        )
+        db.session.add(new_image)
+
     db.session.commit()
     
     return jsonify({'message': 'Property created successfully', 'property': new_property.to_dict()}), 201
@@ -88,7 +126,7 @@ def update_property(property_id):
     if 'description' in data: property.description = data['description']
     if 'image_url' in data: property.image_url = data['image_url']
     
-    # Update Rental Details (NEW)
+    # Update Rental Details
     if 'price' in data: property.price = data['price']
     if 'bedrooms' in data: property.bedrooms = data['bedrooms']
     if 'bathrooms' in data: property.bathrooms = data['bathrooms']
