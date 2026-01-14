@@ -1,5 +1,5 @@
 import os
-from flask import Flask, send_from_directory # 👈 Added send_from_directory
+from flask import Flask, send_from_directory  # 👈 Added send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -20,10 +20,10 @@ def create_app():
     # Database URL (Render provides DATABASE_URL, local uses sqlite or local postgres)
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///homehub.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    
+
     # JWT Configuration
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'super-secret-key-change-this')
-    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24) # Keep users logged in longer for testing
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)  # Keep users logged in longer for testing
 
     # Uploads Configuration
     # This sets the folder where images live
@@ -32,7 +32,7 @@ def create_app():
     # --- INITIALIZE EXTENSIONS ---
     # CORS: Allow frontend (localhost + render) to talk to backend
     CORS(app, resources={r"/*": {"origins": "*"}})
-    
+
     db.init_app(app)
     migrate = Migrate(app, db)
     jwt = JWTManager(app)
@@ -62,17 +62,20 @@ def create_app():
 
     return app
 
+
 # Entry point
 if __name__ == '__main__':
     app = create_app()
+
     # Ensure upload folder exists on startup
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
-        
+
     app.run(debug=True, port=5000)
 
-    # --- TEMPORARY SEED ROUTE (Delete after use) ---
-    @app.route('/api/admin/force-seed-db-123')
+
+# --- TEMPORARY SEED ROUTE (Delete after use) ---
+@app.route('/api/admin/force-seed-db-123')
 def force_seed():
     try:
         from seed import seed_database
@@ -80,5 +83,6 @@ def force_seed():
         return "✅ Database Seeded Successfully!", 200
     except Exception as e:
         return f"❌ Seed Failed: {str(e)}", 500
+
 
   
