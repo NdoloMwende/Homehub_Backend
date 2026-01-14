@@ -1,8 +1,9 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-# 1. UPDATED IMPORTS: Added Lease and Property for safety checks
 from models import User, Lease, Property
+from werkzeug.utils import secure_filename # 👈 Required for file uploads
+import os # 👈 Required for file paths
 
 users_bp = Blueprint('users', __name__)
 
@@ -135,3 +136,43 @@ def reject_user(user_id):
     
     db.session.commit()
     return jsonify({'message': 'User rejected', 'user': user.to_dict()}), 200
+
+# --- 8. UPLOAD VERIFICATION DOCS (The Missing Piece!) ---
+@users_bp.route('/verify-upload', methods=['POST'])
+@jwt_required()
+def upload_verification():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    # 1. Update Text Data (ID and PIN)
+    if request.form.get('national_id'):
+        user.national_id = request.form.get('national_id')
+    if request.form.get('kra_pin'):
+        user.kra_pin = request.form.get('kra_pin')
+
+    # 2. Handle File Upload (The ID Document)
+    file = request.files.get('document')
+    if file:
+        filename = secure_filename(file.filename)
+        
+        # Ensure upload folder exists
+        upload_folder = current_app.config['UPLOAD_FOLDER']
+        if not os.path.exists(upload_folder):
+            os.makedirs(upload_folder)
+            
+        # Save File
+        upload_path = os.path.join(upload_folder, filename)
+        file.save(upload_path)
+        
+        # Update Database
+        user.evidence_of_identity = f"/uploads/{filename}"
+        
+        # Optional: Set status to 'pending' so Admin sees it needs review
+        user.status = 'pending'
+
+    db.session.commit()
+    
+    return jsonify({'message': 'Verification documents uploaded successfully'}), 200
