@@ -7,109 +7,191 @@ import os
 
 properties_bp = Blueprint('properties', __name__)
 
-# --- 🔍 DEBUGGER: Print everything coming in ---
-@properties_bp.before_request
-def log_request_info():
-    if request.method == 'POST':
-        print(f"🔹 [DEBUG] Headers: {request.headers}")
-        print(f"🔹 [DEBUG] Form Data: {request.form}")
-        print(f"🔹 [DEBUG] Files: {request.files}")
+# --- 1. GET ALL (Marketplace) ---
+@properties_bp.route('', methods=['GET'])
+def get_all_properties():
+    """ Get all properties for the public marketplace """
+    try:
+        properties = Property.query.all()
+        return jsonify([prop.to_dict() for prop in properties]), 200
+    except Exception as e:
+        print(f"Error fetching properties: {e}")
+        return jsonify({'error': 'Failed to fetch properties'}), 500
 
-# --- CREATE PROPERTY (Robust) ---
+# --- 2. CREATE (Landlord Only) - THE FIXED ROUTE ---
 @properties_bp.route('', methods=['POST'])
 @jwt_required()
 def create_property():
     try:
         current_user_id = get_jwt_identity()
-        print(f"✅ [DEBUG] User Identified: {current_user_id}")
+        current_user = User.query.get(current_user_id)
+        
+        # Verify role (Optional: you can comment this out if it causes issues)
+        if not current_user or current_user.role != 'landlord':
+            return jsonify({'error': 'Only landlords can create properties'}), 403
 
-        # 1. SMART DATA EXTRACTION
-        # Try to get data from Form (Multipart) OR JSON
-        data = {}
-        if request.content_type and 'multipart/form-data' in request.content_type:
-            data = request.form.to_dict() # Convert to regular dict
-        else:
-            data = request.get_json(silent=True) or {}
-
-        print(f"🔹 [DEBUG] Extracted Data: {data}")
-
-        # 2. VALIDATION (Accept 'title' OR 'name')
+        # Get Form Data
+        data = request.form 
+        
+        # Validation: Allow 'name' OR 'title'
         title = data.get('name') or data.get('title')
         price = data.get('price')
 
         if not title or not price:
-            print("❌ [ERROR] Missing Title or Price")
             return jsonify({'error': 'Title and Price are required'}), 400
 
-        # 3. CREATE PROPERTY OBJECT
+        # Create Property Object
         new_property = Property(
             landlord_id=current_user_id,
             name=title,
             description=data.get('description', ''),
             address=data.get('address', ''),
             city=data.get('city', ''),
-            state=data.get('state', ''),
+            
+            # 🟢 THE FIX: Default to 'Kenya' if frontend doesn't send it
+            country=data.get('country', 'Kenya'), 
+            
+            state=data.get('state', ''), # Maps to County
+            location=data.get('location', ''),
+            
+            # Numeric fields with safety checks
             price=float(price) if price else 0.0,
             bedrooms=int(data.get('bedrooms', 0)) if data.get('bedrooms') else 0,
             bathrooms=int(data.get('bathrooms', 0)) if data.get('bathrooms') else 0,
             square_feet=int(data.get('square_feet', 0)) if data.get('square_feet') else 0,
+            
             property_type=data.get('property_type', 'apartment'),
+            amenities=data.get('amenities', ''),
             status='Available' 
         )
 
-        # 4. HANDLE MAIN IMAGE
-        if 'image' in request.files:
-            file = request.files['image']
-            if file.filename != '':
-                filename = secure_filename(file.filename)
-                # Ensure upload folder exists
-                upload_dir = current_app.config.get('UPLOAD_FOLDER', 'uploads')
-                if not os.path.exists(upload_dir):
-                    os.makedirs(upload_dir)
-                
-                file.save(os.path.join(upload_dir, filename))
-                new_property.image_url = f"/uploads/{filename}"
-                print(f"✅ [DEBUG] Saved Main Image: {filename}")
+        # Handle Main Image
+        main_image = request.files.get('image')
+        if main_image:
+            filename = secure_filename(main_image.filename)
+            # Ensure upload folder exists
+            upload_folder = current_app.config['UPLOAD_FOLDER']
+            if not os.path.exists(upload_folder):
+                os.makedirs(upload_folder)
+            
+            save_path = os.path.join(upload_folder, filename)
+            main_image.save(save_path)
+            new_property.image_url = f"/uploads/{filename}"
 
+        # Commit first to generate the Property ID
         db.session.add(new_property)
         db.session.commit()
 
-        # 5. HANDLE GALLERY IMAGES
-        if 'gallery_images' in request.files:
-            gallery_files = request.files.getlist('gallery_images')
-            for file in gallery_files:
-                if file.filename == '': continue
-                
-                filename = secure_filename(file.filename)
-                file.save(os.path.join(current_app.config['UPLOAD_FOLDER'], filename))
-                
-                new_image = PropertyImage(
-                    property_id=new_property.id,
-                    image_url=f"/uploads/{filename}"
-                )
-                db.session.add(new_image)
-            db.session.commit()
-            print(f"✅ [DEBUG] Saved {len(gallery_files)} Gallery Images")
+        # Handle Gallery Images
+        gallery_files = request.files.getlist('gallery_images')
+        for file in gallery_files:
+            if file.filename == '': continue
+            
+            filename = secure_filename(file.filename)
+            save_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+            file.save(save_path)
+            
+            new_image = PropertyImage(
+                property_id=new_property.id,
+                image_url=f"/uploads/{filename}"
+            )
+            db.session.add(new_image)
 
-        return jsonify({'message': 'Property created!', 'property': new_property.to_dict()}), 201
+        db.session.commit()
+        
+        print(f"✅ Property '{title}' created successfully!")
+        return jsonify({'message': 'Property created successfully', 'property': new_property.to_dict()}), 201
 
     except Exception as e:
-        print(f"❌ [CRITICAL ERROR]: {str(e)}")
-        # Return 500 with the specific error so we can fix it
+        # Print the EXACT error to your terminal so we can see it
+        print(f"❌ CRITICAL ERROR in create_property: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# --- KEEP OTHER ROUTES ---
-@properties_bp.route('', methods=['GET'])
-def get_all_properties():
-    properties = Property.query.all()
-    return jsonify([prop.to_dict() for prop in properties]), 200
-
+# --- 3. GET SINGLE (Details Page) ---
 @properties_bp.route('/<property_id>', methods=['GET'])
 def get_property(property_id):
     property = Property.query.get(property_id)
-    if not property: return jsonify({'error': 'Property not found'}), 404
+    if not property:
+        return jsonify({'error': 'Property not found'}), 404
     return jsonify(property.to_dict()), 200
 
+# --- 4. UPDATE (Edit Page) ---
+@properties_bp.route('/<property_id>', methods=['PUT'])
+@jwt_required()
+def update_property(property_id):
+    current_user_id = get_jwt_identity()
+    property = Property.query.get(property_id)
+    
+    if not property:
+        return jsonify({'error': 'Property not found'}), 404
+    
+    # Security Check
+    current_user = User.query.get(current_user_id)
+    if property.landlord_id != current_user_id and current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    # Handle JSON data for updates (assuming text-only updates for now)
+    data = request.get_json() or {}
+    
+    if 'title' in data: property.name = data['title']
+    if 'name' in data: property.name = data['name']
+    if 'price' in data: property.price = data['price']
+    if 'description' in data: property.description = data['description']
+    
+    # Add other fields as needed...
+
+    db.session.commit()
+    return jsonify({'message': 'Property updated successfully', 'property': property.to_dict()}), 200
+
+# --- 5. DELETE (My Properties Page) ---
+@properties_bp.route('/<property_id>', methods=['DELETE'])
+@jwt_required()
+def delete_property(property_id):
+    current_user_id = get_jwt_identity()
+    property = Property.query.get(property_id)
+
+    if not property:
+        return jsonify({'error': 'Property not found'}), 404
+
+    current_user = User.query.get(current_user_id)
+    if property.landlord_id != current_user_id and current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    db.session.delete(property)
+    db.session.commit()
+
+    return jsonify({'message': 'Property deleted successfully'}), 200
+
+# --- 6. APPROVE/REJECT (Admin Dashboard) ---
+@properties_bp.route('/<property_id>/approve', methods=['POST'])
+@jwt_required()
+def approve_property(property_id):
+    current_user = User.query.get(get_jwt_identity())
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    property = Property.query.get(property_id)
+    if not property: return jsonify({'error': 'Property not found'}), 404
+    
+    property.status = 'approved'
+    db.session.commit()
+    return jsonify({'message': 'Property approved', 'property': property.to_dict()}), 200
+
+@properties_bp.route('/<property_id>/reject', methods=['POST'])
+@jwt_required()
+def reject_property(property_id):
+    current_user = User.query.get(get_jwt_identity())
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    property = Property.query.get(property_id)
+    if not property: return jsonify({'error': 'Property not found'}), 404
+    
+    property.status = 'rejected'
+    db.session.commit()
+    return jsonify({'message': 'Property rejected', 'property': property.to_dict()}), 200
+
+# --- 7. GET LANDLORD PROPERTIES (My Properties Page) ---
 @properties_bp.route('/landlord/<landlord_id>', methods=['GET'])
 def get_landlord_properties(landlord_id):
     properties = Property.query.filter_by(landlord_id=landlord_id).all()
