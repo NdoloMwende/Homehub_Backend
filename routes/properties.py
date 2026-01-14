@@ -1,6 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
-# 🟢 FIX: Import db from extensions to prevent circular import crashes
 from extensions import db
 from models import Property, User, PropertyImage, Unit
 from werkzeug.utils import secure_filename
@@ -11,10 +10,8 @@ properties_bp = Blueprint('properties', __name__)
 # --- 1. GET ALL (Marketplace) ---
 @properties_bp.route('', methods=['GET'])
 def get_all_properties():
-    """ Get all properties for the public marketplace """
     try:
-        properties = Property.query.all()
-        # Returns a clean list of dictionaries for your React map() function
+        properties = Property.query.filter_by(status='approved').all()
         return jsonify([prop.to_dict() for prop in properties]), 200
     except Exception as e:
         print(f"Error fetching properties: {e}")
@@ -28,7 +25,6 @@ def create_property():
         current_user_id = get_jwt_identity()
         data = request.form 
         
-        # Support both 'name' and 'title' keys from frontend
         title = data.get('name') or data.get('title')
         price = data.get('price')
 
@@ -50,14 +46,13 @@ def create_property():
             square_feet=int(data.get('square_feet', 0)) if data.get('square_feet') else 0,
             property_type=data.get('property_type', 'apartment'),
             amenities=data.get('amenities', ''),
-            # 🟢 FIX: Setting to 'approved' so it immediately shows in your Marketplace.jsx
             status='approved' 
         )
 
         # Handle Main Image
         main_image = request.files.get('image')
         if main_image:
-            filename = secure_filename(main_image.filename)
+            filename = secure_filename(f"prop_{current_user_id}_{main_image.filename}")
             upload_folder = current_app.config['UPLOAD_FOLDER']
             if not os.path.exists(upload_folder):
                 os.makedirs(upload_folder)
@@ -69,7 +64,7 @@ def create_property():
         db.session.add(new_property)
         db.session.commit()
 
-        # 🟢 FIX: Auto-Create a Unit so the "Lease Now" button works instantly
+        # 🟢 AUTO-CREATE UNIT (Ensures Lease Now works)
         new_unit = Unit(
             property_id=new_property.id,
             unit_number="Unit 1",
@@ -78,11 +73,11 @@ def create_property():
         )
         db.session.add(new_unit)
 
-        # Handle Gallery Images (Original Functionality Kept)
+        # Handle Gallery Images
         gallery_files = request.files.getlist('gallery_images')
         for file in gallery_files:
             if file.filename == '': continue
-            filename = secure_filename(file.filename)
+            filename = secure_filename(f"gallery_{new_property.id}_{file.filename}")
             save_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
             file.save(save_path)
             
@@ -107,28 +102,38 @@ def get_property(property_id):
         return jsonify({'error': 'Property not found'}), 404
     return jsonify(property.to_dict()), 200
 
-# --- 4. UPDATE (Edit Page) ---
+# --- 4. UPDATE (Edit Page - 🟢 IMPROVED) ---
 @properties_bp.route('/<property_id>', methods=['PUT'])
 @jwt_required()
 def update_property(property_id):
-    current_user_id = get_jwt_identity()
-    property = Property.query.get(property_id)
-    
-    if not property:
-        return jsonify({'error': 'Property not found'}), 404
-    
-    current_user = User.query.get(current_user_id)
-    if str(property.landlord_id) != str(current_user_id) and current_user.role != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    data = request.get_json() or {}
-    if 'title' in data: property.name = data['title']
-    if 'name' in data: property.name = data['name']
-    if 'price' in data: property.price = data['price']
-    if 'description' in data: property.description = data['description']
+    try:
+        current_user_id = get_jwt_identity()
+        property = Property.query.get(property_id)
+        
+        if not property:
+            return jsonify({'error': 'Property not found'}), 404
+        
+        current_user = User.query.get(current_user_id)
+        if str(property.landlord_id) != str(current_user_id) and current_user.role != 'admin':
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        data = request.get_json() or {}
+        
+        # Update all allowed fields
+        if 'name' in data: property.name = data['name']
+        if 'title' in data: property.name = data['title']
+        if 'price' in data: property.price = float(data['price'])
+        if 'description' in data: property.description = data['description']
+        if 'amenities' in data: property.amenities = data['amenities']
+        if 'bedrooms' in data: property.bedrooms = int(data['bedrooms'])
+        if 'bathrooms' in data: property.bathrooms = int(data['bathrooms'])
+        if 'status' in data: property.status = data['status']
 
-    db.session.commit()
-    return jsonify({'message': 'Property updated successfully', 'property': property.to_dict()}), 200
+        db.session.commit()
+        return jsonify({'message': 'Property updated successfully', 'property': property.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 # --- 5. DELETE (My Properties Page) ---
 @properties_bp.route('/<property_id>', methods=['DELETE'])
@@ -148,36 +153,7 @@ def delete_property(property_id):
     db.session.commit()
     return jsonify({'message': 'Property deleted successfully'}), 200
 
-# --- 6. APPROVE/REJECT (Admin Dashboard) ---
-@properties_bp.route('/<property_id>/approve', methods=['POST'])
-@jwt_required()
-def approve_property(property_id):
-    current_user = User.query.get(get_jwt_identity())
-    if current_user.role != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    property = Property.query.get(property_id)
-    if not property: return jsonify({'error': 'Property not found'}), 404
-    
-    property.status = 'approved'
-    db.session.commit()
-    return jsonify({'message': 'Property approved', 'property': property.to_dict()}), 200
-
-@properties_bp.route('/<property_id>/reject', methods=['POST'])
-@jwt_required()
-def reject_property(property_id):
-    current_user = User.query.get(get_jwt_identity())
-    if current_user.role != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    property = Property.query.get(property_id)
-    if not property: return jsonify({'error': 'Property not found'}), 404
-    
-    property.status = 'rejected'
-    db.session.commit()
-    return jsonify({'message': 'Property rejected', 'property': property.to_dict()}), 200
-
-# --- 7. GET LANDLORD PROPERTIES ---
+# --- 6. GET LANDLORD PROPERTIES ---
 @properties_bp.route('/landlord/<landlord_id>', methods=['GET'])
 def get_landlord_properties(landlord_id):
     properties = Property.query.filter_by(landlord_id=landlord_id).all()
