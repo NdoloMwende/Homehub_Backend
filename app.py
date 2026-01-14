@@ -18,7 +18,12 @@ def create_app():
 
     # --- CONFIGURATION ---
     # Database connection for PostgreSQL on Render or local SQLite
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///homehub.db')
+    # Handles Render's "postgres://" vs "postgresql://" requirement
+    uri = os.getenv('DATABASE_URL', 'sqlite:///homehub.db')
+    if uri.startswith("postgres://"):
+        uri = uri.replace("postgres://", "postgresql://", 1)
+    
+    app.config['SQLALCHEMY_DATABASE_URI'] = uri
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     # Security Keys
@@ -29,7 +34,7 @@ def create_app():
     app.config['UPLOAD_FOLDER'] = os.path.join(os.getcwd(), 'uploads')
 
     # --- INITIALIZE EXTENSIONS ---
-    # 🟢 FIXED CORS: Specifically allows your Render frontend to prevent 'Preflight' errors
+    # 🟢 FIXED CORS: Maintains your production and local dev access
     CORS(app, resources={r"/api/*": {
         "origins": [
             "https://homehub-project.onrender.com", 
@@ -44,17 +49,16 @@ def create_app():
     migrate = Migrate(app, db)
     jwt = JWTManager(app)
 
-    # 🟢 HEADER HANDLER: Ensures every response includes the necessary CORS headers
+    # 🟢 HEADER HANDLER: Ensures consistency across all responses
     @app.after_request
     def after_request(response):
-        # Dynamically allow your production frontend
         response.headers.add('Access-Control-Allow-Origin', 'https://homehub-project.onrender.com')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
         return response
 
-    # --- REGISTER BLUEPRINTS (Original Functionality Kept) ---
+    # --- REGISTER BLUEPRINTS (All Original Routes Maintained) ---
     from routes.auth import auth_bp
     from routes.properties import properties_bp
     from routes.leases import leases_bp
@@ -65,7 +69,7 @@ def create_app():
     app.register_blueprint(leases_bp, url_prefix='/api/leases')
     app.register_blueprint(users_bp, url_prefix='/api/users')
 
-    # --- ROUTES (All Original Logic Maintained) ---
+    # --- ROUTES ---
     
     @app.route('/uploads/<path:filename>')
     def serve_uploaded_file(filename):
@@ -75,13 +79,18 @@ def create_app():
     def index():
         return "HomeHub Backend is Running! 🚀"
 
-    # --- TEMPORARY SEED ROUTE (Original logic for Force Seed) ---
+    # --- TEMPORARY SEED ROUTE (Forces Database Sync) ---
     @app.route('/api/admin/force-seed-db-123')
     def force_seed():
         try:
+            # 🟢 CRITICAL: This ensures tables are dropped and recreated 
+            # with your new columns (KRA PIN, National ID, Lease dates)
+            db.drop_all()
+            db.create_all()
+            
             from seed import seed_database
             seed_database()
-            return "✅ Database Seeded Successfully!", 200
+            return "✅ Database Wiped, Recreated, and Seeded Successfully!", 200
         except Exception as e:
             return f"❌ Seed Failed: {str(e)}", 500
 
