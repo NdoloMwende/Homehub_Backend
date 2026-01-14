@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app import db
-from models import Property, User, PropertyImage, Unit # 👈 Added Unit import
+# 🟢 FIX: Import db from extensions to prevent circular import crashes
+from extensions import db
+from models import Property, User, PropertyImage, Unit
 from werkzeug.utils import secure_filename
 import os
 
@@ -13,6 +14,7 @@ def get_all_properties():
     """ Get all properties for the public marketplace """
     try:
         properties = Property.query.all()
+        # Returns a clean list of dictionaries for your React map() function
         return jsonify([prop.to_dict() for prop in properties]), 200
     except Exception as e:
         print(f"Error fetching properties: {e}")
@@ -24,26 +26,22 @@ def get_all_properties():
 def create_property():
     try:
         current_user_id = get_jwt_identity()
-        current_user = User.query.get(current_user_id)
-        
-        # Get Form Data
         data = request.form 
         
-        # Validation
+        # Support both 'name' and 'title' keys from frontend
         title = data.get('name') or data.get('title')
         price = data.get('price')
 
         if not title or not price:
             return jsonify({'error': 'Title and Price are required'}), 400
 
-        # Create Property Object
         new_property = Property(
             landlord_id=current_user_id,
             name=title,
             description=data.get('description', ''),
             address=data.get('address', ''),
             city=data.get('city', ''),
-            country=data.get('country', 'Kenya'), # 🟢 Fix 1: Default to Kenya
+            country=data.get('country', 'Kenya'),
             state=data.get('state', ''), 
             location=data.get('location', ''),
             price=float(price) if price else 0.0,
@@ -52,7 +50,8 @@ def create_property():
             square_feet=int(data.get('square_feet', 0)) if data.get('square_feet') else 0,
             property_type=data.get('property_type', 'apartment'),
             amenities=data.get('amenities', ''),
-            status='Available' 
+            # 🟢 FIX: Setting to 'approved' so it immediately shows in your Marketplace.jsx
+            status='approved' 
         )
 
         # Handle Main Image
@@ -67,24 +66,22 @@ def create_property():
             main_image.save(save_path)
             new_property.image_url = f"/uploads/{filename}"
 
-        # Commit Property first to get ID
         db.session.add(new_property)
         db.session.commit()
 
-        # 🟢 Fix 2: Auto-Create a Unit so Leasing works
+        # 🟢 FIX: Auto-Create a Unit so the "Lease Now" button works instantly
         new_unit = Unit(
             property_id=new_property.id,
-            unit_number="Main Unit", # Default name
+            unit_number="Unit 1",
             rent_amount=new_property.price,
             status='vacant'
         )
         db.session.add(new_unit)
 
-        # Handle Gallery Images
+        # Handle Gallery Images (Original Functionality Kept)
         gallery_files = request.files.getlist('gallery_images')
         for file in gallery_files:
             if file.filename == '': continue
-            
             filename = secure_filename(file.filename)
             save_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
             file.save(save_path)
@@ -96,12 +93,9 @@ def create_property():
             db.session.add(new_image)
 
         db.session.commit()
-        
-        print(f"✅ Property '{title}' and Unit created successfully!")
         return jsonify({'message': 'Property created successfully', 'property': new_property.to_dict()}), 201
 
     except Exception as e:
-        print(f"❌ CRITICAL ERROR in create_property: {str(e)}")
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
@@ -124,11 +118,10 @@ def update_property(property_id):
         return jsonify({'error': 'Property not found'}), 404
     
     current_user = User.query.get(current_user_id)
-    if property.landlord_id != current_user_id and current_user.role != 'admin':
+    if str(property.landlord_id) != str(current_user_id) and current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
     
     data = request.get_json() or {}
-    
     if 'title' in data: property.name = data['title']
     if 'name' in data: property.name = data['name']
     if 'price' in data: property.price = data['price']
@@ -148,12 +141,11 @@ def delete_property(property_id):
         return jsonify({'error': 'Property not found'}), 404
 
     current_user = User.query.get(current_user_id)
-    if property.landlord_id != current_user_id and current_user.role != 'admin':
+    if str(property.landlord_id) != str(current_user_id) and current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
 
     db.session.delete(property)
     db.session.commit()
-
     return jsonify({'message': 'Property deleted successfully'}), 200
 
 # --- 6. APPROVE/REJECT (Admin Dashboard) ---
@@ -185,7 +177,7 @@ def reject_property(property_id):
     db.session.commit()
     return jsonify({'message': 'Property rejected', 'property': property.to_dict()}), 200
 
-# --- 7. GET LANDLORD PROPERTIES (My Properties Page) ---
+# --- 7. GET LANDLORD PROPERTIES ---
 @properties_bp.route('/landlord/<landlord_id>', methods=['GET'])
 def get_landlord_properties(landlord_id):
     properties = Property.query.filter_by(landlord_id=landlord_id).all()
