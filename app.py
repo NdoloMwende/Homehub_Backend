@@ -71,4 +71,14 @@ if __name__ == '__main__':
         
     app.run(debug=True, port=5000)
 
+    # --- TEMPORARY SEED ROUTE (Delete after use) ---
+    @app.route('/api/admin/force-seed-db-123')
+    def force_seed():
+    try:
+        from seed import seed_database
+        seed_database()
+        return "✅ Database Seeded Successfully!", 200
+    except Exception as e:
+        return f"❌ Seed Failed: {str(e)}", 500
+
   
