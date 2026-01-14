@@ -3,25 +3,40 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from extensions import db
 from models import Lease, Property, User, Notification, Unit
 from datetime import datetime, timedelta
+from sqlalchemy import cast, String  # 🟢 IMPORT REQUIRED FOR ID FIX
 
-# 🟢 THIS WAS MISSING: Define the Blueprint
 leases_bp = Blueprint('leases', __name__)
 
-# --- 1. GET ALL LEASES (NUCLEAR DEBUG VERSION) ---
+# --- 1. GET ALL LEASES ---
 @leases_bp.route('', methods=['GET'])
-# @jwt_required() # 🟢 Temporarily commented out to test raw DB access
+@jwt_required()
 def get_all_leases():
     try:
-        # 🟢 NUCLEAR DEBUG: Fetch EVERYTHING ignoring User IDs
-        leases = Lease.query.all()
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
         
-        print(f"\n☢️ NUCLEAR DEBUG: Found {len(leases)} total leases in DB.")
-        for l in leases:
-            print(f"   - ID: {l.id} | Status: {l.status} | TenantID: {l.tenant_id} | Prop: {l.property_name}")
+        if not user:
+            return jsonify({'error': 'User session not found'}), 404
 
+        print(f"🔍 Fetching leases for User ID: {current_user_id} (Role: {user.role})")
+
+        if user.role == 'landlord':
+            # 🟢 FIX: Use SQLAlchemy 'cast' instead of Python 'str'
+            # This safely converts the DB UUID to a string for comparison
+            leases = db.session.query(Lease).join(Unit).join(Property)\
+                .filter(cast(Property.landlord_id, String) == str(current_user_id))\
+                .order_by(Lease.created_at.desc()).all()
+        else:
+            # 🟢 FIX: Same here for Tenant
+            leases = Lease.query.filter(cast(Lease.tenant_id, String) == str(current_user_id))\
+                .order_by(Lease.created_at.desc()).all()
+        
+        print(f"✅ Found {len(leases)} leases.")
         return jsonify([lease.to_dict() for lease in leases]), 200
+
     except Exception as e:
-        print(f"❌ DB ERROR: {e}")
+        print(f"❌ Error fetching leases: {e}")
+        # Return the actual error message so the frontend debug box can see it
         return jsonify({'error': str(e)}), 500
 
 
@@ -53,7 +68,6 @@ def create_lease_application():
             db.session.add(unit)
             db.session.commit()
 
-        # Create Lease
         new_lease = Lease(
             unit_id=unit.id,
             tenant_id=current_user_id,
@@ -73,6 +87,7 @@ def create_lease_application():
         
         db.session.commit()
         return jsonify({'message': 'Lease application sent successfully!'}), 201
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -94,6 +109,7 @@ def update_lease_status(lease_id):
         unit = Unit.query.get(lease.unit_id)
         prop = Property.query.get(unit.property_id)
         
+        # Security Check using Cast
         if str(prop.landlord_id) != str(current_user_id):
             return jsonify({'error': 'Unauthorized'}), 403
 
@@ -107,6 +123,7 @@ def update_lease_status(lease_id):
         db.session.add(Notification(user_id=lease.tenant_id, message=f"Application {action}."))
         db.session.commit()
         return jsonify({'message': f'Lease marked as {action}'}), 200
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
