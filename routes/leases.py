@@ -16,15 +16,23 @@ def get_all_leases():
     if not user:
         return jsonify({'error': 'User session not found'}), 404
 
+    # 🟢 DEBUG PRINT: Check your terminal logs to verify who is asking
+    print(f"🔍 DEBUG: Fetching leases for User ID: {current_user_id} (Role: {user.role})")
+
     if user.role == 'landlord':
+        # 🟢 FIX: Cast to String to prevent UUID vs String mismatch
         # John sees history for all his properties to update his "Active Tenants" count
         leases = db.session.query(Lease).join(Unit).join(Property)\
-            .filter(Property.landlord_id == current_user_id)\
+            .filter(str(Property.landlord_id) == str(current_user_id))\
             .order_by(Lease.created_at.desc()).all()
     else:
+        # 🟢 FIX: Cast to String here as well
         # Tom sees his personal history (Pending, Active, Rejected)
-        leases = Lease.query.filter_by(tenant_id=current_user_id)\
+        leases = Lease.query.filter(str(Lease.tenant_id) == str(current_user_id))\
             .order_by(Lease.created_at.desc()).all()
+            
+    # 🟢 DEBUG PRINT: Confirm how many leases were actually found
+    print(f"✅ DEBUG: Found {len(leases)} leases for user.")
 
     return jsonify([lease.to_dict() for lease in leases]), 200
 
@@ -63,7 +71,9 @@ def create_lease_application():
             unit_id=unit.id,
             tenant_id=current_user_id,
             rent_amount=property_obj.price,
-            status='pending'
+            status='pending',
+            start_date=datetime.utcnow(), # Temporary default
+            end_date=datetime.utcnow() + timedelta(days=365) # Temporary default
         )
         
         db.session.add(new_lease)
