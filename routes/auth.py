@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import create_access_token
-from app import db
+from extensions import db  # 🟢 Updated to use extensions
 from models import User
 
 auth_bp = Blueprint('auth', __name__)
@@ -25,26 +25,33 @@ def register():
     # --- 🔐 ADMIN SECRET CHECK 🔐 ---
     if data.get('admin_secret') == 'HomeHubAdmin2026':
         role = 'admin'
-        status = 'active' # Admins are auto-verified
-        print(f"🎉 Creating new ADMIN: {data['email']}")
+        status = 'active' 
     elif role == 'landlord':
         status = 'pending' # Landlords need verification
     # --------------------------------
 
-    # 4. Create User
-    new_user = User(
-        full_name=data['full_name'],
-        email=data['email'],
-        password_hash=generate_password_hash(data['password']),
-        role=role,
-        status=status,
-        phone=data.get('phone')
-    )
+    # 4. Create User with ALL model fields
+    try:
+        new_user = User(
+            full_name=data['full_name'],
+            email=data['email'],
+            role=role,
+            status=status,
+            phone_number=data.get('phone_number') or data.get('phone'), # 🟢 Handles both naming styles
+            national_id=data.get('national_id'), # 🟢 Added for verification
+            kra_pin=data.get('kra_pin'),         # 🟢 Added for verification
+            evidence_of_identity=data.get('evidence_of_identity')
+        )
+        new_user.set_password(data['password']) # Uses the helper method from models.py
 
-    db.session.add(new_user)
-    db.session.commit()
+        db.session.add(new_user)
+        db.session.commit()
 
-    return jsonify({'message': 'User registered successfully'}), 201
+        return jsonify({'message': 'User registered successfully'}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Registration Error: {str(e)}")
+        return jsonify({'error': 'Registration failed. Ensure all fields are valid.'}), 500
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
@@ -53,11 +60,11 @@ def login():
     # 1. Check if user exists
     user = User.query.filter_by(email=data.get('email')).first()
     
-    # 2. Check password
-    if not user or not check_password_hash(user.password_hash, data.get('password')):
+    # 2. Check password using the method in the User model
+    if not user or not user.check_password(data.get('password')):
         return jsonify({'error': 'Invalid credentials'}), 401
     
-    # 3. Generate Token
+    # 3. Generate Token (Uses UUID string as identity)
     access_token = create_access_token(identity=user.id)
     
     return jsonify({

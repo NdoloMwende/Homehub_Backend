@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
-from extensions import db  # 👈 IMPORT FROM EXTENSIONS
+from extensions import db
 
 # --- USER MODEL ---
 class User(db.Model):
@@ -14,7 +14,7 @@ class User(db.Model):
     role = db.Column(db.String(20), nullable=False)  # 'landlord', 'tenant', 'admin'
     phone_number = db.Column(db.String(20))
     
-    # Verification Fields
+    # Verification Fields (Maintained)
     status = db.Column(db.String(20), default='pending')
     national_id = db.Column(db.String(50))
     kra_pin = db.Column(db.String(50))
@@ -143,16 +143,25 @@ class Lease(db.Model):
     status = db.Column(db.String(20), default='pending')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    # Relationship to invoices
+    # Relationships
     invoices = db.relationship('RentInvoice', backref='lease', lazy=True)
+    payments = db.relationship('Payment', backref='lease', lazy=True)
 
     def to_dict(self):
+        # 🟢 UPDATED: Resolving Property info for Tenant history
+        prop = self.unit.property if self.unit and self.unit.property else None
+        
         return {
             'id': self.id,
             'unit_id': self.unit_id,
             'tenant_id': self.tenant_id,
+            'property_name': prop.name if prop else "Unknown Property",
+            'unit_number': self.unit.unit_number if self.unit else "Main",
             'status': self.status,
             'rent_amount': self.rent_amount,
+            # 🟢 UPDATED: Formatting dates for React
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
             'created_at': self.created_at.isoformat()
         }
 
@@ -202,7 +211,7 @@ class MaintenanceRequest(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
-# --- 🟢 MISSING MODEL 3: RENT INVOICE ---
+# --- RENT INVOICE MODEL ---
 class RentInvoice(db.Model):
     __tablename__ = 'rent_invoices'
 
@@ -210,7 +219,7 @@ class RentInvoice(db.Model):
     lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     due_date = db.Column(db.DateTime, nullable=False)
-    status = db.Column(db.String(20), default='pending') # pending, paid, overdue
+    status = db.Column(db.String(20), default='pending')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -222,7 +231,7 @@ class RentInvoice(db.Model):
             'status': self.status
         }
 
-# --- 🟢 MISSING MODEL 4: PAYMENT (Prevent next error) ---
+# --- PAYMENT MODEL ---
 class Payment(db.Model):
     __tablename__ = 'payments'
     
@@ -230,7 +239,7 @@ class Payment(db.Model):
     lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     date_paid = db.Column(db.DateTime, default=datetime.utcnow)
-    method = db.Column(db.String(50)) # M-Pesa, Cash, Bank
+    method = db.Column(db.String(50)) # e.g., M-Pesa, Cash
 
     def to_dict(self):
         return {
