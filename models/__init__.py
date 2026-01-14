@@ -143,6 +143,9 @@ class Lease(db.Model):
     status = db.Column(db.String(20), default='pending')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Relationship to invoices
+    invoices = db.relationship('RentInvoice', backref='lease', lazy=True)
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -153,7 +156,7 @@ class Lease(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
-# --- 🟢 MISSING MODEL 1: NOTIFICATION ---
+# --- NOTIFICATION MODEL ---
 class Notification(db.Model):
     __tablename__ = 'notifications'
 
@@ -172,7 +175,7 @@ class Notification(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
-# --- 🟢 MISSING MODEL 2: MAINTENANCE REQUEST ---
+# --- MAINTENANCE REQUEST MODEL ---
 class MaintenanceRequest(db.Model):
     __tablename__ = 'maintenance_requests'
 
@@ -182,8 +185,8 @@ class MaintenanceRequest(db.Model):
     
     title = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=False)
-    priority = db.Column(db.String(20), default='medium') # low, medium, high, emergency
-    status = db.Column(db.String(20), default='pending') # pending, in_progress, completed
+    priority = db.Column(db.String(20), default='medium')
+    status = db.Column(db.String(20), default='pending')
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -197,4 +200,42 @@ class MaintenanceRequest(db.Model):
             'priority': self.priority,
             'status': self.status,
             'created_at': self.created_at.isoformat()
+        }
+
+# --- 🟢 MISSING MODEL 3: RENT INVOICE ---
+class RentInvoice(db.Model):
+    __tablename__ = 'rent_invoices'
+
+    id = db.Column(db.Integer, primary_key=True)
+    lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    due_date = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(20), default='pending') # pending, paid, overdue
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'lease_id': self.lease_id,
+            'amount': self.amount,
+            'due_date': self.due_date.isoformat(),
+            'status': self.status
+        }
+
+# --- 🟢 MISSING MODEL 4: PAYMENT (Prevent next error) ---
+class Payment(db.Model):
+    __tablename__ = 'payments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    date_paid = db.Column(db.DateTime, default=datetime.utcnow)
+    method = db.Column(db.String(50)) # M-Pesa, Cash, Bank
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'amount': self.amount,
+            'date_paid': self.date_paid.isoformat(),
+            'method': self.method
         }
