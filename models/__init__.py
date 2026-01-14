@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
-from extensions import db  # 👈 IMPORT FROM EXTENSIONS (Not app!)
+from extensions import db  # 👈 IMPORT FROM EXTENSIONS
 
 # --- USER MODEL ---
 class User(db.Model):
@@ -15,16 +15,18 @@ class User(db.Model):
     phone_number = db.Column(db.String(20))
     
     # Verification Fields
-    status = db.Column(db.String(20), default='pending')  # 'pending', 'approved', 'active'
+    status = db.Column(db.String(20), default='pending')
     national_id = db.Column(db.String(50))
     kra_pin = db.Column(db.String(50))
-    evidence_of_identity = db.Column(db.String(255)) # Path to file
+    evidence_of_identity = db.Column(db.String(255))
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
     properties = db.relationship('Property', backref='landlord', lazy=True)
     leases = db.relationship('Lease', backref='tenant', lazy=True)
+    notifications = db.relationship('Notification', backref='user', lazy=True)
+    maintenance_requests = db.relationship('MaintenanceRequest', backref='tenant', lazy=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -39,9 +41,7 @@ class User(db.Model):
             'full_name': self.full_name,
             'role': self.role,
             'status': self.status,
-            'phone_number': self.phone_number,
-            'national_id': self.national_id,
-            'evidence_of_identity': self.evidence_of_identity
+            'phone_number': self.phone_number
         }
 
 # --- PROPERTY MODEL ---
@@ -51,12 +51,12 @@ class Property(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     landlord_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
     
-    name = db.Column(db.String(100), nullable=False) # Or title
+    name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     address = db.Column(db.String(200))
     city = db.Column(db.String(100))
-    state = db.Column(db.String(100)) # Used for County
-    country = db.Column(db.String(100), default="Kenya") # 🟢 Added to fix your error
+    state = db.Column(db.String(100))
+    country = db.Column(db.String(100), default="Kenya")
     location = db.Column(db.String(100))
     
     price = db.Column(db.Float, nullable=False)
@@ -65,9 +65,9 @@ class Property(db.Model):
     square_feet = db.Column(db.Integer, default=0)
     
     property_type = db.Column(db.String(50), default='apartment')
-    amenities = db.Column(db.Text) # Comma separated string
+    amenities = db.Column(db.Text)
     
-    image_url = db.Column(db.String(255)) # Main cover image
+    image_url = db.Column(db.String(255))
     
     status = db.Column(db.String(20), default='Available')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -75,6 +75,7 @@ class Property(db.Model):
     # Relationships
     images = db.relationship('PropertyImage', backref='property', lazy=True, cascade="all, delete-orphan")
     units = db.relationship('Unit', backref='property', lazy=True, cascade="all, delete-orphan")
+    maintenance_requests = db.relationship('MaintenanceRequest', backref='property', lazy=True)
 
     def to_dict(self):
         return {
@@ -107,7 +108,7 @@ class PropertyImage(db.Model):
     def to_dict(self):
         return {'id': self.id, 'image_url': self.image_url}
 
-# --- UNIT MODEL (Critical for Leasing) ---
+# --- UNIT MODEL ---
 class Unit(db.Model):
     __tablename__ = 'units'
 
@@ -115,7 +116,7 @@ class Unit(db.Model):
     property_id = db.Column(db.String(36), db.ForeignKey('properties.id'), nullable=False)
     unit_number = db.Column(db.String(50), nullable=False)
     rent_amount = db.Column(db.Float, nullable=False)
-    status = db.Column(db.String(20), default='vacant') # vacant, occupied
+    status = db.Column(db.String(20), default='vacant')
 
     leases = db.relationship('Lease', backref='unit', lazy=True)
 
@@ -139,7 +140,7 @@ class Lease(db.Model):
     end_date = db.Column(db.DateTime)
     rent_amount = db.Column(db.Float)
     
-    status = db.Column(db.String(20), default='pending') # pending, active, rejected, terminated
+    status = db.Column(db.String(20), default='pending')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -149,5 +150,51 @@ class Lease(db.Model):
             'tenant_id': self.tenant_id,
             'status': self.status,
             'rent_amount': self.rent_amount,
+            'created_at': self.created_at.isoformat()
+        }
+
+# --- 🟢 MISSING MODEL 1: NOTIFICATION ---
+class Notification(db.Model):
+    __tablename__ = 'notifications'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
+    message = db.Column(db.String(255), nullable=False)
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'message': self.message,
+            'is_read': self.is_read,
+            'created_at': self.created_at.isoformat()
+        }
+
+# --- 🟢 MISSING MODEL 2: MAINTENANCE REQUEST ---
+class MaintenanceRequest(db.Model):
+    __tablename__ = 'maintenance_requests'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    property_id = db.Column(db.String(36), db.ForeignKey('properties.id'), nullable=False)
+    tenant_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
+    
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    priority = db.Column(db.String(20), default='medium') # low, medium, high, emergency
+    status = db.Column(db.String(20), default='pending') # pending, in_progress, completed
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'property_id': self.property_id,
+            'tenant_id': self.tenant_id,
+            'title': self.title,
+            'description': self.description,
+            'priority': self.priority,
+            'status': self.status,
             'created_at': self.created_at.isoformat()
         }
