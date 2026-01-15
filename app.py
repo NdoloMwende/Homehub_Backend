@@ -35,7 +35,7 @@ def create_app():
     # --- INITIALIZE EXTENSIONS ---
     
     # 🟢 FIXED: Only use Flask-CORS. 
-    # Removed the manual 'after_request' header injection that was causing conflicts.
+    # The manual 'after_request' block has been REMOVED to prevent the "Multiple Values" error.
     CORS(app, resources={r"/api/*": {
         "origins": [
             "https://homehub-project.onrender.com", 
