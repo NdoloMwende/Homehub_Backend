@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 
 # 🟢 IMPORT FROM EXTENSIONS (Matches your models.py setup)
 from extensions import db
-from models import User, Property, Unit, Lease
+# 🟢 UPDATE: Added Invoice and Payment here so db.create_all() sees them
+from models import User, Property, Unit, Lease, Invoice, Payment
 
 # Load environment variables
 load_dotenv()
