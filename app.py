@@ -5,12 +5,10 @@ from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 from dotenv import load_dotenv
-# 🟢 Import text to run raw SQL
 from sqlalchemy import text
 
-# 🟢 IMPORT FROM EXTENSIONS
+# IMPORT FROM EXTENSIONS
 from extensions import db
-# 🟢 Ensure all models are imported so create_all() works
 from models import User, Property, Unit, Lease, Invoice, Payment
 
 # Load environment variables
@@ -21,7 +19,7 @@ def create_app():
 
     # --- CONFIGURATION ---
     uri = os.getenv('DATABASE_URL', 'sqlite:///homehub.db')
-    if uri.startswith("postgres://"):
+    if uri and uri.startswith("postgres://"):
         uri = uri.replace("postgres://", "postgresql://", 1)
     
     app.config['SQLALCHEMY_DATABASE_URI'] = uri
@@ -35,6 +33,9 @@ def create_app():
     app.config['UPLOAD_FOLDER'] = os.path.join(os.getcwd(), 'uploads')
 
     # --- INITIALIZE EXTENSIONS ---
+    
+    # 🟢 FIXED: Only use Flask-CORS. 
+    # Removed the manual 'after_request' header injection that was causing conflicts.
     CORS(app, resources={r"/api/*": {
         "origins": [
             "https://homehub-project.onrender.com", 
@@ -50,15 +51,6 @@ def create_app():
     migrate = Migrate(app, db)
     jwt = JWTManager(app)
 
-    # 🟢 HEADER HANDLER
-    @app.after_request
-    def after_request(response):
-        response.headers.add('Access-Control-Allow-Origin', 'https://homehub-project.onrender.com')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,PATCH,DELETE,OPTIONS')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        return response
-
     # --- REGISTER BLUEPRINTS ---
     from routes.auth import auth_bp
     from routes.properties import properties_bp
@@ -66,7 +58,6 @@ def create_app():
     from routes.users import users_bp
     from routes.maintenance import maintenance_bp
     from routes.payments import payments_bp
-    # 🟢 NEW: Import Admin Blueprint
     from routes.admin import admin_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -75,7 +66,6 @@ def create_app():
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(maintenance_bp, url_prefix='/api/maintenance')
     app.register_blueprint(payments_bp, url_prefix='/api/payments')
-    # 🟢 NEW: Register Admin Blueprint
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
 
     # --- ROUTES ---
@@ -87,19 +77,25 @@ def create_app():
     def index():
         return "HomeHub Backend is Running! 🚀"
 
-    # --- TEMPORARY SEED ROUTE (With Fix) ---
+    # --- TEMPORARY SEED ROUTE ---
     @app.route('/api/admin/force-seed-db-123')
     def force_seed():
         try:
-            # 🟢 CRITICAL FIX: Manually drop the "ghost" tables first
-            # We use CASCADE to force them to let go of the 'leases' table
             with app.app_context():
                 with db.session.begin():
-                    db.session.execute(text("DROP TABLE IF EXISTS rent_invoices CASCADE;"))
+                    # Order matters for dependencies
                     db.session.execute(text("DROP TABLE IF EXISTS payments CASCADE;"))
                     db.session.execute(text("DROP TABLE IF EXISTS invoices CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS rent_invoices CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS maintenance_requests CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS notifications CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS leases CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS units CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS property_images CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS properties CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS users CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE;"))
 
-            # Now standard drop_all will work without conflicts
             db.drop_all()
             db.create_all()
             
@@ -111,11 +107,8 @@ def create_app():
 
     return app
 
-# Entry point
 if __name__ == '__main__':
     app = create_app()
-
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
-
     app.run(debug=True, port=5000)
