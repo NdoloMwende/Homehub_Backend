@@ -5,7 +5,7 @@ from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 from dotenv import load_dotenv
-# 🟢 NEW: Import text to run raw SQL
+# 🟢 Import text to run raw SQL
 from sqlalchemy import text
 
 # 🟢 IMPORT FROM EXTENSIONS
@@ -66,6 +66,8 @@ def create_app():
     from routes.users import users_bp
     from routes.maintenance import maintenance_bp
     from routes.payments import payments_bp
+    # 🟢 NEW: Import Admin Blueprint
+    from routes.admin import admin_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(properties_bp, url_prefix='/api/properties')
@@ -73,6 +75,8 @@ def create_app():
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(maintenance_bp, url_prefix='/api/maintenance')
     app.register_blueprint(payments_bp, url_prefix='/api/payments')
+    # 🟢 NEW: Register Admin Blueprint
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
 
     # --- ROUTES ---
     @app.route('/uploads/<path:filename>')
