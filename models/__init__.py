@@ -6,20 +6,16 @@ from extensions import db
 # --- USER MODEL ---
 class User(db.Model):
     __tablename__ = 'users'
-
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     full_name = db.Column(db.String(100), nullable=False)
-    role = db.Column(db.String(20), nullable=False)  # 'landlord', 'tenant', 'admin'
+    role = db.Column(db.String(20), nullable=False)
     phone_number = db.Column(db.String(20))
-    
-    # Verification Fields (Maintained)
     status = db.Column(db.String(20), default='pending')
     national_id = db.Column(db.String(50))
     kra_pin = db.Column(db.String(50))
     evidence_of_identity = db.Column(db.String(255))
-    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -47,10 +43,8 @@ class User(db.Model):
 # --- PROPERTY MODEL ---
 class Property(db.Model):
     __tablename__ = 'properties'
-
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     landlord_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
-    
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     address = db.Column(db.String(200))
@@ -58,24 +52,19 @@ class Property(db.Model):
     state = db.Column(db.String(100))
     country = db.Column(db.String(100), default="Kenya")
     location = db.Column(db.String(100))
-    
     price = db.Column(db.Float, nullable=False)
     bedrooms = db.Column(db.Integer, default=0)
     bathrooms = db.Column(db.Integer, default=0)
     square_feet = db.Column(db.Integer, default=0)
-    
     property_type = db.Column(db.String(50), default='apartment')
     amenities = db.Column(db.Text)
-    
     image_url = db.Column(db.String(255))
-    
     status = db.Column(db.String(20), default='Available')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
     images = db.relationship('PropertyImage', backref='property', lazy=True, cascade="all, delete-orphan")
     units = db.relationship('Unit', backref='property', lazy=True, cascade="all, delete-orphan")
-    maintenance_requests = db.relationship('MaintenanceRequest', backref='property', lazy=True)
 
     def to_dict(self):
         return {
@@ -100,7 +89,6 @@ class Property(db.Model):
 # --- PROPERTY IMAGE MODEL ---
 class PropertyImage(db.Model):
     __tablename__ = 'property_images'
-    
     id = db.Column(db.Integer, primary_key=True)
     property_id = db.Column(db.String(36), db.ForeignKey('properties.id'), nullable=False)
     image_url = db.Column(db.String(255), nullable=False)
@@ -111,14 +99,14 @@ class PropertyImage(db.Model):
 # --- UNIT MODEL ---
 class Unit(db.Model):
     __tablename__ = 'units'
-
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     property_id = db.Column(db.String(36), db.ForeignKey('properties.id'), nullable=False)
-    unit_number = db.Column(db.String(50), nullable=False)
+    unit_number = db.Column(db.String(50), nullable=False) # Serial Number
     rent_amount = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(20), default='vacant')
 
     leases = db.relationship('Lease', backref='unit', lazy=True)
+    maintenance_requests = db.relationship('MaintenanceRequest', backref='unit', lazy=True)
 
     def to_dict(self):
         return {
@@ -131,15 +119,12 @@ class Unit(db.Model):
 # --- LEASE MODEL ---
 class Lease(db.Model):
     __tablename__ = 'leases'
-
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    unit_id = db.Column(db.String(36), db.ForeignKey('units.id'), nullable=False)
+    unit_id = db.Column(db.String(36), db.ForeignKey('units.id'), nullable=False) # 🟢 Linked to Unit
     tenant_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
-    
     start_date = db.Column(db.DateTime)
     end_date = db.Column(db.DateTime)
     rent_amount = db.Column(db.Float)
-    
     status = db.Column(db.String(20), default='pending')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -147,19 +132,20 @@ class Lease(db.Model):
     invoices = db.relationship('RentInvoice', backref='lease', lazy=True)
     payments = db.relationship('Payment', backref='lease', lazy=True)
 
+    # 🟢 Helper to get Property Name easily
+    @property
+    def property_name(self):
+        return self.unit.property.name if self.unit and self.unit.property else "Unknown Property"
+
     def to_dict(self):
-        # 🟢 UPDATED: Resolving Property info for Tenant history
-        prop = self.unit.property if self.unit and self.unit.property else None
-        
         return {
             'id': self.id,
             'unit_id': self.unit_id,
             'tenant_id': self.tenant_id,
-            'property_name': prop.name if prop else "Unknown Property",
+            'property_name': self.property_name,
             'unit_number': self.unit.unit_number if self.unit else "Main",
             'status': self.status,
             'rent_amount': self.rent_amount,
-            # 🟢 UPDATED: Formatting dates for React
             'start_date': self.start_date.isoformat() if self.start_date else None,
             'end_date': self.end_date.isoformat() if self.end_date else None,
             'created_at': self.created_at.isoformat()
@@ -168,7 +154,6 @@ class Lease(db.Model):
 # --- NOTIFICATION MODEL ---
 class Notification(db.Model):
     __tablename__ = 'notifications'
-
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
     message = db.Column(db.String(255), nullable=False)
@@ -187,22 +172,19 @@ class Notification(db.Model):
 # --- MAINTENANCE REQUEST MODEL ---
 class MaintenanceRequest(db.Model):
     __tablename__ = 'maintenance_requests'
-
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    property_id = db.Column(db.String(36), db.ForeignKey('properties.id'), nullable=False)
+    unit_id = db.Column(db.String(36), db.ForeignKey('units.id'), nullable=False) # 🟢 Linked to Unit
     tenant_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
-    
     title = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=False)
     priority = db.Column(db.String(20), default='medium')
     status = db.Column(db.String(20), default='pending')
-    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
         return {
             'id': self.id,
-            'property_id': self.property_id,
+            'unit_id': self.unit_id,
             'tenant_id': self.tenant_id,
             'title': self.title,
             'description': self.description,
@@ -214,7 +196,6 @@ class MaintenanceRequest(db.Model):
 # --- RENT INVOICE MODEL ---
 class RentInvoice(db.Model):
     __tablename__ = 'rent_invoices'
-
     id = db.Column(db.Integer, primary_key=True)
     lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
@@ -234,12 +215,11 @@ class RentInvoice(db.Model):
 # --- PAYMENT MODEL ---
 class Payment(db.Model):
     __tablename__ = 'payments'
-    
     id = db.Column(db.Integer, primary_key=True)
     lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     date_paid = db.Column(db.DateTime, default=datetime.utcnow)
-    method = db.Column(db.String(50)) # e.g., M-Pesa, Cash
+    method = db.Column(db.String(50))
 
     def to_dict(self):
         return {
