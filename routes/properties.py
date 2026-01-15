@@ -1,53 +1,60 @@
 import os
-import uuid
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from werkzeug.utils import secure_filename
 from extensions import db
-from models import Property, PropertyImage, Unit, User
+from models import Property, PropertyImage, User
+
+# 🟢 NEW: Cloudinary Imports
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 
 properties_bp = Blueprint('properties', __name__)
 
-# Allowed image extensions
+# 🟢 NEW: Configure Cloudinary
+cloudinary.config( 
+  cloud_name = os.getenv('CLOUDINARY_CLOUD_NAME'), 
+  api_key = os.getenv('CLOUDINARY_API_KEY'), 
+  api_secret = os.getenv('CLOUDINARY_API_SECRET') 
+)
+
+# Allowed image extensions (Basic validation)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# --- 1. CREATE PROPERTY (With Admin Verification Logic) ---
+# --- 1. CREATE PROPERTY (Cloudinary + Admin Verification) ---
 @properties_bp.route('/', methods=['POST'])
 @jwt_required()
 def create_property():
     try:
         current_user_id = get_jwt_identity()
         
-        # 1. Check if user is a VALID Landlord
+        # 1. Validate Landlord
         landlord = User.query.get(current_user_id)
         if landlord.role != 'landlord':
             return jsonify({'error': 'Only landlords can list properties'}), 403
         if landlord.status != 'active':
             return jsonify({'error': 'You must be a verified landlord to list properties'}), 403
 
-        # 2. Handle Text Data
+        # 2. Get Text Data
         data = request.form
         
-        # 3. Handle Main Image
+        # 3. 🟢 NEW: Upload Main Image to Cloudinary
         if 'image' not in request.files:
             return jsonify({'error': 'Main property image is required'}), 400
         
         file = request.files['image']
-        if file.filename == '':
-            return jsonify({'error': 'No image selected'}), 400
-            
+        
         if file and allowed_file(file.filename):
-            filename = secure_filename(f"{uuid.uuid4()}_{file.filename}")
-            file.save(os.path.join(current_app.config['UPLOAD_FOLDER'], filename))
-            # In production, you would upload to Cloudinary here
-            image_url = f"https://homehub-project.onrender.com/uploads/{filename}"
+            # Upload to Cloudinary
+            upload_result = cloudinary.uploader.upload(file)
+            image_url = upload_result['secure_url'] # <--- The Permanent Cloud URL
         else:
-            return jsonify({'error': 'Invalid file type'}), 400
+            return jsonify({'error': 'Invalid file type or no file'}), 400
 
-        # 4. 🟢 CRITICAL FIX: Set status to 'pending'
+        # 4. Create Property (Status = Pending for Admin Review)
         new_property = Property(
             landlord_id=current_user_id,
             name=data['name'],
@@ -58,19 +65,19 @@ def create_property():
             bedrooms=int(data['bedrooms']),
             bathrooms=int(data['bathrooms']),
             image_url=image_url,
-            status='pending'  # <--- Forces Admin Approval
+            status='pending'  # <--- Admin must approve this!
         )
         
         db.session.add(new_property)
-        db.session.commit() # Commit to get ID for gallery images
+        db.session.commit()
 
-        # 5. Handle Extra Gallery Images
+        # 5. 🟢 NEW: Upload Extra Gallery Images to Cloudinary
         files = request.files.getlist('extra_images')
         for f in files:
             if f and allowed_file(f.filename):
-                fname = secure_filename(f"{uuid.uuid4()}_{f.filename}")
-                f.save(os.path.join(current_app.config['UPLOAD_FOLDER'], fname))
-                extra_url = f"https://homehub-project.onrender.com/uploads/{fname}"
+                # Upload each extra image to Cloudinary
+                res = cloudinary.uploader.upload(f)
+                extra_url = res['secure_url']
                 
                 gallery_img = PropertyImage(property_id=new_property.id, image_url=extra_url)
                 db.session.add(gallery_img)
@@ -83,18 +90,14 @@ def create_property():
         }), 201
 
     except Exception as e:
+        print("Upload Error:", e)
         return jsonify({'error': str(e)}), 500
 
 # --- 2. GET ALL PROPERTIES (Public Marketplace) ---
 @properties_bp.route('/', methods=['GET'])
 def get_properties():
-    # Only show APPROVED properties to the public
+    # Only show APPROVED properties
     properties = Property.query.filter_by(status='approved').all()
-    # (Or 'Available' if you use that status in your seed, but 'approved' is safer for new logic)
-    
-    # Fallback: If your seed data uses 'Available' and you want to show those too:
-    # properties = Property.query.filter(Property.status.in_(['approved', 'Available'])).all()
-    
     return jsonify([p.to_dict() for p in properties]), 200
 
 # --- 3. GET SINGLE PROPERTY ---
@@ -109,6 +112,7 @@ def get_property(property_id):
 @jwt_required()
 def get_my_properties():
     current_user_id = get_jwt_identity()
-    # Landlords should see ALL their properties, even pending ones
+    # Landlords see ALL their properties (pending, rejected, approved)
     properties = Property.query.filter_by(landlord_id=current_user_id).all()
     return jsonify([p.to_dict() for p in properties]), 200
+    
