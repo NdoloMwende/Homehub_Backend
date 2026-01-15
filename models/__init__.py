@@ -228,3 +228,53 @@ class Payment(db.Model):
             'date_paid': self.date_paid.isoformat(),
             'method': self.method
         }
+        # ... (Keep your existing imports and models)
+from datetime import datetime
+
+# 🟢 NEW: INVOICE MODEL
+class Invoice(db.Model):
+    __tablename__ = 'invoices'
+    id = db.Column(db.Integer, primary_key=True)
+    lease_id = db.Column(db.Integer, db.ForeignKey('leases.id'), nullable=False)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    
+    amount = db.Column(db.Float, nullable=False)
+    description = db.Column(db.String(255), nullable=False) # e.g. "Rent - January"
+    due_date = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(20), default='pending') # pending, paid
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    payments = db.relationship('Payment', backref='invoice', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'lease_id': self.lease_id,
+            'amount': self.amount,
+            'description': self.description,
+            'due_date': self.due_date.isoformat(),
+            'status': self.status,
+            'created_at': self.created_at.isoformat()
+        }
+
+# 🟢 NEW: PAYMENT MODEL
+class Payment(db.Model):
+    __tablename__ = 'payments'
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoices.id'), nullable=False)
+    
+    transaction_code = db.Column(db.String(50), unique=True) # M-Pesa Code
+    amount = db.Column(db.Float, nullable=False)
+    phone_number = db.Column(db.String(20))
+    payment_date = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'invoice_id': self.invoice_id,
+            'transaction_code': self.transaction_code,
+            'amount': self.amount,
+            'date': self.payment_date.isoformat()
+        }
