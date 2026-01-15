@@ -7,7 +7,7 @@ from sqlalchemy import cast, String
 
 leases_bp = Blueprint('leases', __name__)
 
-# --- 1. GET ALL LEASES ---
+# --- 1. GET ALL LEASES (With Tenant Details) ---
 @leases_bp.route('', methods=['GET'])
 @jwt_required()
 def get_all_leases():
@@ -18,22 +18,40 @@ def get_all_leases():
         if not user:
             return jsonify({'error': 'User session not found'}), 404
 
+        # 🟢 LANDLORD: See all requests for my properties
         if user.role == 'landlord':
-            # 🟢 FIX: Cast to String for ID matching
             leases = db.session.query(Lease).join(Unit).join(Property)\
                 .filter(cast(Property.landlord_id, String) == str(current_user_id))\
                 .order_by(Lease.created_at.desc()).all()
+        # 🟢 TENANT: See my applications
         else:
             leases = Lease.query.filter(cast(Lease.tenant_id, String) == str(current_user_id))\
                 .order_by(Lease.created_at.desc()).all()
         
-        return jsonify([lease.to_dict() for lease in leases]), 200
+        # 🟢 INJECT TENANT INFO (So Landlord sees names, not just IDs)
+        results = []
+        for lease in leases:
+            data = lease.to_dict()
+            
+            # Fetch Tenant Details
+            tenant = User.query.get(lease.tenant_id)
+            if tenant:
+                data['tenant_name'] = tenant.full_name
+                data['tenant_email'] = tenant.email
+                data['tenant_phone'] = tenant.phone_number
+            else:
+                data['tenant_name'] = "Unknown Tenant"
+                
+            results.append(data)
+
+        return jsonify(results), 200
 
     except Exception as e:
+        print(f"Error fetching leases: {e}")
         return jsonify({'error': str(e)}), 500
 
 
-# --- 2. CREATE LEASE APPLICATION (The Auto-Unit Fix) ---
+# --- 2. CREATE LEASE APPLICATION ---
 @leases_bp.route('', methods=['POST'])
 @jwt_required()
 def create_lease_application():
@@ -42,17 +60,13 @@ def create_lease_application():
         data = request.get_json()
         prop_id = data.get('property_id')
 
-        if not prop_id:
-            return jsonify({'error': 'Invalid Property selection'}), 400
+        if not prop_id: return jsonify({'error': 'Invalid Property'}), 400
 
         property_obj = Property.query.get(prop_id)
-        if not property_obj:
-            return jsonify({'error': 'Property not found'}), 404
+        if not property_obj: return jsonify({'error': 'Property not found'}), 404
 
-        # 🟢 STEP 1: Find a vacant unit
+        # Auto-Assign Unit
         unit = Unit.query.filter_by(property_id=prop_id, status='vacant').first()
-
-        # 🟢 STEP 2: If no units exist, create "Unit-1" automatically
         if not unit:
             count = Unit.query.filter_by(property_id=prop_id).count()
             unit = Unit(
@@ -64,7 +78,6 @@ def create_lease_application():
             db.session.add(unit)
             db.session.commit()
 
-        # 🟢 STEP 3: Create Lease using valid Unit ID
         new_lease = Lease(
             unit_id=unit.id,
             tenant_id=current_user_id,
@@ -75,15 +88,9 @@ def create_lease_application():
         )
         
         db.session.add(new_lease)
-        
-        # Notify Landlord
-        db.session.add(Notification(
-            user_id=property_obj.landlord_id, 
-            message=f"New application for {property_obj.name} (Unit {unit.unit_number})."
-        ))
-        
+        db.session.add(Notification(user_id=property_obj.landlord_id, message=f"New application for {property_obj.name}"))
         db.session.commit()
-        return jsonify({'message': 'Application sent successfully!'}), 201
+        return jsonify({'message': 'Application sent!'}), 201
 
     except Exception as e:
         db.session.rollback()
@@ -100,14 +107,12 @@ def update_lease_status(lease_id):
         action = data.get('status') 
 
         lease = Lease.query.get(lease_id)
-        if not lease:
-            return jsonify({'error': 'Lease not found'}), 404
+        if not lease: return jsonify({'error': 'Lease not found'}), 404
 
         unit = Unit.query.get(lease.unit_id)
         prop = Property.query.get(unit.property_id)
         
-        if str(prop.landlord_id) != str(current_user_id):
-            return jsonify({'error': 'Unauthorized'}), 403
+        if str(prop.landlord_id) != str(current_user_id): return jsonify({'error': 'Unauthorized'}), 403
 
         if action == 'approved':
             lease.status = 'active'
