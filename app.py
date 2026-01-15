@@ -5,10 +5,12 @@ from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 from dotenv import load_dotenv
+# 🟢 NEW: Import text to run raw SQL
+from sqlalchemy import text
 
-# 🟢 IMPORT FROM EXTENSIONS (Matches your models.py setup)
+# 🟢 IMPORT FROM EXTENSIONS
 from extensions import db
-# 🟢 UPDATE: Added Invoice and Payment here so db.create_all() sees them
+# 🟢 Ensure all models are imported so create_all() works
 from models import User, Property, Unit, Lease, Invoice, Payment
 
 # Load environment variables
@@ -18,8 +20,6 @@ def create_app():
     app = Flask(__name__)
 
     # --- CONFIGURATION ---
-    # Database connection for PostgreSQL on Render or local SQLite
-    # Handles Render's "postgres://" vs "postgresql://" requirement
     uri = os.getenv('DATABASE_URL', 'sqlite:///homehub.db')
     if uri.startswith("postgres://"):
         uri = uri.replace("postgres://", "postgresql://", 1)
@@ -35,8 +35,6 @@ def create_app():
     app.config['UPLOAD_FOLDER'] = os.path.join(os.getcwd(), 'uploads')
 
     # --- INITIALIZE EXTENSIONS ---
-    # 🟢 FIXED CORS: Maintains your production and local dev access
-    # 🟢 UPDATE: Added "PATCH" to methods so Landlords can update status
     CORS(app, resources={r"/api/*": {
         "origins": [
             "https://homehub-project.onrender.com", 
@@ -52,8 +50,7 @@ def create_app():
     migrate = Migrate(app, db)
     jwt = JWTManager(app)
 
-    # 🟢 HEADER HANDLER: Ensures consistency across all responses
-    # 🟢 UPDATE: Added "PATCH" here too
+    # 🟢 HEADER HANDLER
     @app.after_request
     def after_request(response):
         response.headers.add('Access-Control-Allow-Origin', 'https://homehub-project.onrender.com')
@@ -62,13 +59,12 @@ def create_app():
         response.headers.add('Access-Control-Allow-Credentials', 'true')
         return response
 
-    # --- REGISTER BLUEPRINTS (All Original Routes Maintained) ---
+    # --- REGISTER BLUEPRINTS ---
     from routes.auth import auth_bp
     from routes.properties import properties_bp
     from routes.leases import leases_bp
     from routes.users import users_bp
     from routes.maintenance import maintenance_bp
-    # 🟢 NEW: IMPORT PAYMENTS
     from routes.payments import payments_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -76,12 +72,9 @@ def create_app():
     app.register_blueprint(leases_bp, url_prefix='/api/leases')
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(maintenance_bp, url_prefix='/api/maintenance')
-    
-    # 🟢 NEW: REGISTER PAYMENTS (Enables Invoicing & M-Pesa)
     app.register_blueprint(payments_bp, url_prefix='/api/payments')
 
     # --- ROUTES ---
-    
     @app.route('/uploads/<path:filename>')
     def serve_uploaded_file(filename):
         return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
@@ -90,12 +83,19 @@ def create_app():
     def index():
         return "HomeHub Backend is Running! 🚀"
 
-    # --- TEMPORARY SEED ROUTE (Forces Database Sync) ---
+    # --- TEMPORARY SEED ROUTE (With Fix) ---
     @app.route('/api/admin/force-seed-db-123')
     def force_seed():
         try:
-            # 🟢 CRITICAL: This ensures tables are dropped and recreated 
-            # with your new columns (KRA PIN, National ID, Lease dates)
+            # 🟢 CRITICAL FIX: Manually drop the "ghost" tables first
+            # We use CASCADE to force them to let go of the 'leases' table
+            with app.app_context():
+                with db.session.begin():
+                    db.session.execute(text("DROP TABLE IF EXISTS rent_invoices CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS payments CASCADE;"))
+                    db.session.execute(text("DROP TABLE IF EXISTS invoices CASCADE;"))
+
+            # Now standard drop_all will work without conflicts
             db.drop_all()
             db.create_all()
             
@@ -111,7 +111,6 @@ def create_app():
 if __name__ == '__main__':
     app = create_app()
 
-    # Ensure upload folder exists on startup
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
