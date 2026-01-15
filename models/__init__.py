@@ -120,7 +120,7 @@ class Unit(db.Model):
 class Lease(db.Model):
     __tablename__ = 'leases'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    unit_id = db.Column(db.String(36), db.ForeignKey('units.id'), nullable=False) # 🟢 Linked to Unit
+    unit_id = db.Column(db.String(36), db.ForeignKey('units.id'), nullable=False)
     tenant_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
     start_date = db.Column(db.DateTime)
     end_date = db.Column(db.DateTime)
@@ -129,10 +129,9 @@ class Lease(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
-    invoices = db.relationship('RentInvoice', backref='lease', lazy=True)
-    payments = db.relationship('Payment', backref='lease', lazy=True)
+    invoices = db.relationship('Invoice', backref='lease', lazy=True)
 
-    # 🟢 Helper to get Property Name easily
+    # Helper to get Property Name easily
     @property
     def property_name(self):
         return self.unit.property.name if self.unit and self.unit.property else "Unknown Property"
@@ -173,7 +172,7 @@ class Notification(db.Model):
 class MaintenanceRequest(db.Model):
     __tablename__ = 'maintenance_requests'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    unit_id = db.Column(db.String(36), db.ForeignKey('units.id'), nullable=False) # 🟢 Linked to Unit
+    unit_id = db.Column(db.String(36), db.ForeignKey('units.id'), nullable=False)
     tenant_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
     title = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=False)
@@ -193,50 +192,14 @@ class MaintenanceRequest(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
-# --- RENT INVOICE MODEL ---
-class RentInvoice(db.Model):
-    __tablename__ = 'rent_invoices'
-    id = db.Column(db.Integer, primary_key=True)
-    lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    due_date = db.Column(db.DateTime, nullable=False)
-    status = db.Column(db.String(20), default='pending')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'lease_id': self.lease_id,
-            'amount': self.amount,
-            'due_date': self.due_date.isoformat(),
-            'status': self.status
-        }
-
-# --- PAYMENT MODEL ---
-class Payment(db.Model):
-    __tablename__ = 'payments'
-    id = db.Column(db.Integer, primary_key=True)
-    lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    date_paid = db.Column(db.DateTime, default=datetime.utcnow)
-    method = db.Column(db.String(50))
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'amount': self.amount,
-            'date_paid': self.date_paid.isoformat(),
-            'method': self.method
-        }
-        # ... (Keep your existing imports and models)
-from datetime import datetime
-
-# 🟢 NEW: INVOICE MODEL
+# --- INVOICE MODEL (Consolidated & M-Pesa Ready) ---
 class Invoice(db.Model):
     __tablename__ = 'invoices'
     id = db.Column(db.Integer, primary_key=True)
-    lease_id = db.Column(db.Integer, db.ForeignKey('leases.id'), nullable=False)
-    tenant_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    # 🟢 FIXED: Changed to String(36) to match Lease.id (UUID)
+    lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
+    # 🟢 FIXED: Changed to String(36) to match User.id (UUID)
+    tenant_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
     
     amount = db.Column(db.Float, nullable=False)
     description = db.Column(db.String(255), nullable=False) # e.g. "Rent - January"
@@ -259,13 +222,13 @@ class Invoice(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
-# 🟢 NEW: PAYMENT MODEL
+# --- PAYMENT MODEL (M-Pesa Ready) ---
 class Payment(db.Model):
     __tablename__ = 'payments'
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoices.id'), nullable=False)
     
-    transaction_code = db.Column(db.String(50), unique=True) # M-Pesa Code
+    transaction_code = db.Column(db.String(50), unique=True) # M-Pesa Code (QHG...)
     amount = db.Column(db.Float, nullable=False)
     phone_number = db.Column(db.String(20))
     payment_date = db.Column(db.DateTime, default=datetime.utcnow)
