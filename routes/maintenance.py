@@ -24,7 +24,6 @@ def get_requests():
                 cast(MaintenanceRequest.tenant_id, String) == str(current_user_id)
             ).order_by(MaintenanceRequest.created_at.desc()).all()
 
-        # Add Property Name for Context
         result = []
         for req in requests:
             r_dict = req.to_dict()
@@ -38,7 +37,8 @@ def get_requests():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# --- 2. CREATE REQUEST (Smart Logic) ---
+
+# --- 2. CREATE REQUEST (The Bulletproof Logic) ---
 @maintenance_bp.route('', methods=['POST'])
 @jwt_required()
 def create_request():
@@ -47,33 +47,52 @@ def create_request():
         data = request.get_json()
         provided_unit_id = data.get('unit_id')
         
-        # 🟢 SCENARIO 1: Fetch ALL Active Leases
-        active_leases = Lease.query.filter(
-            cast(Lease.tenant_id, String) == str(current_user_id),
-            Lease.status == 'active'
+        print(f"🔍 DEBUG: New Request from {current_user_id} for Unit {provided_unit_id}")
+
+        # 🟢 STEP 1: Fetch ALL leases (Ignore status filter for now)
+        all_leases = Lease.query.filter(
+            cast(Lease.tenant_id, String) == str(current_user_id)
         ).all()
         
+        # 🟢 STEP 2: Filter for 'Active' in Python (Ignores Case & Spaces)
+        active_leases = []
+        for lease in all_leases:
+            # Clean the status string
+            status_clean = str(lease.status).strip().lower()
+            print(f"   - Checking Lease {lease.id} (Unit {lease.unit_id}): Status='{lease.status}'")
+            
+            if status_clean == 'active':
+                active_leases.append(lease)
+
+        # Check if we found anything
         if not active_leases:
-             return jsonify({'error': 'No active leases found.'}), 403
+            print("❌ DEBUG: No active leases found after filtering.")
+            return jsonify({'error': 'No active leases found. You cannot submit maintenance requests.'}), 403
 
+        # 🟢 STEP 3: Match the Unit ID
         target_lease = None
-
-        # 🟢 SCENARIO 2: If User selected a Property (Dropdown)
-        if provided_unit_id:
-            target_lease = next((l for l in active_leases if str(l.unit_id) == str(provided_unit_id)), None)
-            if not target_lease:
-                return jsonify({'error': 'Invalid Property Selected.'}), 403
         
-        # 🟢 SCENARIO 3: Auto-Detect (Single Property)
+        # Scenario A: User Selected a Property (Dropdown)
+        if provided_unit_id:
+            # Look for ID match inside active leases
+            target_lease = next((l for l in active_leases if str(l.unit_id) == str(provided_unit_id)), None)
+            
+            if not target_lease:
+                print(f"❌ DEBUG: Unit ID {provided_unit_id} not found in user's active leases.")
+                return jsonify({'error': 'Invalid Property Selected. Ensure you have an Active lease for this specific unit.'}), 403
+        
+        # Scenario B: Auto-Select (Only 1 Active Lease)
         else:
             if len(active_leases) == 1:
                 target_lease = active_leases[0]
+                print(f"✅ DEBUG: Auto-selected Lease {target_lease.id}")
             else:
-                return jsonify({'error': 'Multiple properties found. Please select one.'}), 400
+                return jsonify({'error': 'You have multiple active properties. Please select one from the list.'}), 400
 
+        # 🟢 STEP 4: Create
         new_request = MaintenanceRequest(
             tenant_id=current_user_id,
-            unit_id=target_lease.unit_id, # 🟢 Uses specific Unit ID
+            unit_id=target_lease.unit_id,
             title=data.get('title'),
             description=data.get('description'),
             priority=data.get('priority', 'medium'),
@@ -90,13 +109,15 @@ def create_request():
                 db.session.add(Notification(user_id=prop.landlord_id, message=f"Maintenance: {data.get('title')}"))
 
         db.session.commit()
-        return jsonify({'message': 'Submitted', 'request': new_request.to_dict()}), 201
+        return jsonify({'message': 'Request submitted successfully!', 'request': new_request.to_dict()}), 201
 
     except Exception as e:
         db.session.rollback()
+        print(f"❌ ERROR: {e}")
         return jsonify({'error': str(e)}), 500
 
-# --- 3. UPDATE REQUEST ---
+
+# --- 3. UPDATE STATUS ---
 @maintenance_bp.route('/<int:request_id>', methods=['PATCH'])
 @jwt_required()
 def update_request_status(request_id):
