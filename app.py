@@ -35,13 +35,14 @@ def create_app():
 
     # --- INITIALIZE EXTENSIONS ---
     # 🟢 FIXED CORS: Maintains your production and local dev access
+    # 🟢 UPDATE: Added "PATCH" to methods so Landlords can update status
     CORS(app, resources={r"/api/*": {
         "origins": [
             "https://homehub-project.onrender.com", 
             "http://localhost:5173",
             "http://127.0.0.1:5173",
         ],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
         "supports_credentials": True
     }})
@@ -51,11 +52,12 @@ def create_app():
     jwt = JWTManager(app)
 
     # 🟢 HEADER HANDLER: Ensures consistency across all responses
+    # 🟢 UPDATE: Added "PATCH" here too
     @app.after_request
     def after_request(response):
         response.headers.add('Access-Control-Allow-Origin', 'https://homehub-project.onrender.com')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,PATCH,DELETE,OPTIONS')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
         return response
 
