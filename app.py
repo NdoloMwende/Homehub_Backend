@@ -64,11 +64,16 @@ def create_app():
     from routes.properties import properties_bp
     from routes.leases import leases_bp
     from routes.users import users_bp
+    # 🟢 1. IMPORT MAINTENANCE BLUEPRINT
+    from routes.maintenance import maintenance_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(properties_bp, url_prefix='/api/properties')
     app.register_blueprint(leases_bp, url_prefix='/api/leases')
     app.register_blueprint(users_bp, url_prefix='/api/users')
+    
+    # 🟢 2. REGISTER MAINTENANCE BLUEPRINT (Fixes the 404 Error)
+    app.register_blueprint(maintenance_bp, url_prefix='/api/maintenance')
 
     # --- ROUTES ---
     
