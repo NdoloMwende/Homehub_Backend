@@ -25,7 +25,7 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # --- 1. CREATE PROPERTY (Cloudinary + Admin Verification) ---
-@properties_bp.route('/', methods=['POST'])
+@properties_bp.route('/', methods=['POST'], strict_slashes=False)
 @jwt_required()
 def create_property():
     try:
@@ -94,25 +94,24 @@ def create_property():
         return jsonify({'error': str(e)}), 500
 
 # --- 2. GET ALL PROPERTIES (Public Marketplace) ---
-@properties_bp.route('/', methods=['GET'])
+@properties_bp.route('/', methods=['GET'], strict_slashes=False)
 def get_properties():
     # Only show APPROVED properties
     properties = Property.query.filter_by(status='approved').all()
     return jsonify([p.to_dict() for p in properties]), 200
 
 # --- 3. GET SINGLE PROPERTY ---
-@properties_bp.route('/<property_id>', methods=['GET'])
+@properties_bp.route('/<property_id>', methods=['GET'], strict_slashes=False)
 def get_property(property_id):
     prop = Property.query.get(property_id)
     if not prop: return jsonify({'error': 'Property not found'}), 404
     return jsonify(prop.to_dict()), 200
 
 # --- 4. LANDLORD: GET MY PROPERTIES ---
-@properties_bp.route('/my-properties', methods=['GET'])
+@properties_bp.route('/my-properties', methods=['GET'], strict_slashes=False)
 @jwt_required()
 def get_my_properties():
     current_user_id = get_jwt_identity()
     # Landlords see ALL their properties (pending, rejected, approved)
     properties = Property.query.filter_by(landlord_id=current_user_id).all()
     return jsonify([p.to_dict() for p in properties]), 200
-    
