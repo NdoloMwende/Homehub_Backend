@@ -1,8 +1,8 @@
 import os
 from app import create_app
 from extensions import db
-# 🟢 UPDATED: Added PropertyImage to imports
-from models import User, Property, Unit, Lease, Notification, MaintenanceRequest, RentInvoice, Payment, PropertyImage
+# 🟢 UPDATED: Removed RentInvoice, Added Invoice
+from models import User, Property, Unit, Lease, Notification, MaintenanceRequest, Invoice, Payment, PropertyImage
 from werkzeug.security import generate_password_hash
 from datetime import datetime, timedelta
 import uuid
@@ -17,7 +17,8 @@ def seed_database():
         print("🧹 Dropping tables with CASCADE...")
         db.session.execute(db.text('''
             DROP TABLE IF EXISTS payments CASCADE;
-            DROP TABLE IF EXISTS rent_invoices CASCADE;
+            DROP TABLE IF EXISTS invoices CASCADE;  -- 🟢 NEW TABLE
+            DROP TABLE IF EXISTS rent_invoices CASCADE; -- 🟢 OLD TABLE (Cleanup)
             DROP TABLE IF EXISTS maintenance_requests CASCADE;
             DROP TABLE IF EXISTS notifications CASCADE;
             DROP TABLE IF EXISTS leases CASCADE;
@@ -43,7 +44,7 @@ def seed_database():
 
         for u in users_data:
             user = User(
-                id=str(uuid.uuid4()), # 🟢 Explicit UUID for users
+                id=str(uuid.uuid4()), 
                 full_name=u["full_name"],
                 email=u["email"],
                 password_hash=generate_password_hash(u["password"]),
@@ -63,12 +64,11 @@ def seed_database():
                 "status": "approved", "price": 85000, "bedrooms": 4, "bathrooms": 3, 
                 "description": "Beautiful villa with a large garden and modern finishes.", 
                 "image_url": "https://images.unsplash.com/photo-1580587771525-78b9dba3b91d?w=800",
-                # 🟢 NEW: Extra Images (Kitchen, Bedroom, Bath)
                 "extra_images": [
-                    "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=800", # Kitchen
-                    "https://images.unsplash.com/photo-1616594039964-40891a909d99?w=800", # Bedroom
-                    "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=800", # Bathroom
-                    "https://images.unsplash.com/photo-1572331165267-854da2b8f98c?w=800"  # Living Room
+                    "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=800",
+                    "https://images.unsplash.com/photo-1616594039964-40891a909d99?w=800",
+                    "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=800",
+                    "https://images.unsplash.com/photo-1572331165267-854da2b8f98c?w=800"
                 ]
             },
             {
@@ -77,9 +77,9 @@ def seed_database():
                 "description": "Cozy apartment near city center.", 
                 "image_url": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800",
                 "extra_images": [
-                    "https://images.unsplash.com/photo-1484154218962-a1c002085d2f?w=800", # Kitchen
-                    "https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=800", # Bedroom
-                    "https://images.unsplash.com/photo-1507089947368-19c1da9775ae?w=800"  # Interior
+                    "https://images.unsplash.com/photo-1484154218962-a1c002085d2f?w=800",
+                    "https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=800",
+                    "https://images.unsplash.com/photo-1507089947368-19c1da9775ae?w=800"
                 ]
             },
             {
@@ -88,8 +88,8 @@ def seed_database():
                 "description": "Traditional Swahili style house.", 
                 "image_url": "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800",
                 "extra_images": [
-                    "https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=800", # Interior
-                    "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800"  # Pool/View
+                    "https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=800",
+                    "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800"
                 ]
             },
             {
@@ -98,8 +98,8 @@ def seed_database():
                 "description": "Affordable flats with lake views.", 
                 "image_url": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800",
                 "extra_images": [
-                    "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800", # Room
-                    "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=800"  # Living
+                    "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800",
+                    "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=800"
                 ]
             },
             {
@@ -108,9 +108,9 @@ def seed_database():
                 "description": "Exclusive penthouse with a private pool.", 
                 "image_url": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800",
                 "extra_images": [
-                    "https://images.unsplash.com/photo-1576013551627-0cc20b96c2a7?w=800", # Pool
-                    "https://images.unsplash.com/photo-1565538810643-b5bdb714032a?w=800", # Kitchen
-                    "https://images.unsplash.com/photo-1631679706909-1844bbd07221?w=800"  # Living
+                    "https://images.unsplash.com/photo-1576013551627-0cc20b96c2a7?w=800",
+                    "https://images.unsplash.com/photo-1565538810643-b5bdb714032a?w=800",
+                    "https://images.unsplash.com/photo-1631679706909-1844bbd07221?w=800"
                 ]
             },
             {
@@ -128,8 +128,8 @@ def seed_database():
                 "description": "Serene cottage in the woods.", 
                 "image_url": "https://images.unsplash.com/photo-1600596542815-6ad4c728fdbe?w=800",
                 "extra_images": [
-                    "https://images.unsplash.com/photo-1510798831971-661eb04b3739?w=800", # Forest View
-                    "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=800"  # Kitchen
+                    "https://images.unsplash.com/photo-1510798831971-661eb04b3739?w=800",
+                    "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=800"
                 ]
             },
             {
@@ -138,8 +138,8 @@ def seed_database():
                 "description": "Expansive villa with beach access.", 
                 "image_url": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800",
                 "extra_images": [
-                    "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800", # Beach
-                    "https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=800"  # Living
+                    "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800",
+                    "https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=800"
                 ]
             },
             {
@@ -155,7 +155,7 @@ def seed_database():
                 "description": "Modern apartment in a gated community.", 
                 "image_url": "https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=800",
                 "extra_images": [
-                    "https://images.unsplash.com/photo-1588880331179-bc9b93a8cb5e?w=800" # Garden
+                    "https://images.unsplash.com/photo-1588880331179-bc9b93a8cb5e?w=800"
                 ]
             },
             {
@@ -164,8 +164,8 @@ def seed_database():
                 "description": "Fully furnished executive apartments.", 
                 "image_url": "https://images.unsplash.com/photo-1484154218962-a1c002085d2f?w=800",
                 "extra_images": [
-                    "https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=800", # Office/Desk
-                    "https://images.unsplash.com/photo-1556910103-1c02745a30bf?w=800"  # Dining
+                    "https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=800",
+                    "https://images.unsplash.com/photo-1556910103-1c02745a30bf?w=800"
                 ]
             }
         ]
@@ -175,7 +175,7 @@ def seed_database():
             if not landlord: continue
 
             prop = Property(
-                id=str(uuid.uuid4()), # 🟢 Explicit ID
+                id=str(uuid.uuid4()), 
                 landlord_id=landlord.id,
                 name=p_data["name"],
                 address=p_data["address"],
@@ -190,7 +190,7 @@ def seed_database():
             )
             db.session.add(prop)
             
-            # 🟢 SEED EXTRA IMAGES
+            # SEED EXTRA IMAGES
             for extra_img_url in p_data.get("extra_images", []):
                 extra_img = PropertyImage(
                     property_id=prop.id,
@@ -200,10 +200,9 @@ def seed_database():
         
         db.session.commit()
 
-        # 4. SEED UNITS (Required for 'Lease Now' functionality)
+        # 4. SEED UNITS
         print("🏢 Seeding units and floors...")
         
-        # We need to fetch properties back from DB to get their IDs
         units_data = [
             {"prop": "Green Villa", "no": "A-101", "rent": 85000, "stat": "vacant"},
             {"prop": "Green Villa", "no": "A-102", "rent": 85000, "stat": "vacant"},
@@ -238,8 +237,8 @@ def seed_database():
                 ))
         db.session.commit()
 
-        # 5. CREATE ACTIVE LEASE FOR TOM (For Maintenance Testing)
-        print("📝 Creating Lease for Tom Tenant...")
+        # 5. CREATE ACTIVE LEASE FOR TOM (With Invoices)
+        print("📝 Creating Lease and Invoices for Tom Tenant...")
         tom = User.query.filter_by(email="tom.tenant@homehub.com").first()
         green_villa = Property.query.filter_by(name="Green Villa").first()
         
@@ -247,9 +246,10 @@ def seed_database():
         unit_101 = Unit.query.filter_by(property_id=green_villa.id, unit_number="A-101").first()
         
         if tom and unit_101:
+            # Create Lease
             lease = Lease(
                 id=str(uuid.uuid4()),
-                unit_id=unit_101.id, # 🟢 Linked Correctly
+                unit_id=unit_101.id, 
                 tenant_id=tom.id,
                 rent_amount=85000,
                 status='active',
@@ -259,7 +259,31 @@ def seed_database():
             unit_101.status = 'occupied' # Mark unit as taken
             db.session.add(lease)
             db.session.commit()
-            print(f"   - Created Active Lease for Tom at Green Villa (Unit A-101)")
+            
+            # 🟢 NEW: Create Invoices for Tom (M-Pesa Ready)
+            # Invoice 1: Pending
+            inv1 = Invoice(
+                lease_id=lease.id,
+                tenant_id=tom.id,
+                amount=85000,
+                description="Rent - January 2026",
+                due_date=datetime.utcnow() + timedelta(days=5),
+                status="pending"
+            )
+            # Invoice 2: Paid
+            inv2 = Invoice(
+                lease_id=lease.id,
+                tenant_id=tom.id,
+                amount=85000,
+                description="Deposit",
+                due_date=datetime.utcnow(),
+                status="paid"
+            )
+            db.session.add(inv1)
+            db.session.add(inv2)
+            db.session.commit()
+            
+            print(f"   - Created Active Lease + 2 Invoices for Tom at Green Villa")
 
         print("✅ Perfect Seed Complete! Database is ready.")
 
