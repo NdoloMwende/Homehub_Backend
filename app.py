@@ -33,9 +33,13 @@ def create_app():
     app.config['UPLOAD_FOLDER'] = os.path.join(os.getcwd(), 'uploads')
 
     # --- INITIALIZE EXTENSIONS ---
-    
-    # 🟢 FIXED: Only use Flask-CORS. 
-    # The manual 'after_request' block has been REMOVED to prevent the "Multiple Values" error.
+    db.init_app(app)
+    migrate = Migrate(app, db)
+    jwt = JWTManager(app)
+
+    # 🟢 THE FIX IS HERE:
+    # We use ONLY this CORS block. 
+    # We have DELETED the manual "@app.after_request" block that was causing the conflict.
     CORS(app, resources={r"/api/*": {
         "origins": [
             "https://homehub-project.onrender.com", 
@@ -46,10 +50,6 @@ def create_app():
         "allow_headers": ["Content-Type", "Authorization"],
         "supports_credentials": True
     }})
-
-    db.init_app(app)
-    migrate = Migrate(app, db)
-    jwt = JWTManager(app)
 
     # --- REGISTER BLUEPRINTS ---
     from routes.auth import auth_bp
@@ -83,7 +83,7 @@ def create_app():
         try:
             with app.app_context():
                 with db.session.begin():
-                    # Order matters for dependencies
+                    # Clear all tables cleanly
                     db.session.execute(text("DROP TABLE IF EXISTS payments CASCADE;"))
                     db.session.execute(text("DROP TABLE IF EXISTS invoices CASCADE;"))
                     db.session.execute(text("DROP TABLE IF EXISTS rent_invoices CASCADE;"))
