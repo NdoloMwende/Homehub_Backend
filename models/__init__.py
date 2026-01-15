@@ -196,9 +196,7 @@ class MaintenanceRequest(db.Model):
 class Invoice(db.Model):
     __tablename__ = 'invoices'
     id = db.Column(db.Integer, primary_key=True)
-    # 🟢 FIXED: Changed to String(36) to match Lease.id (UUID)
     lease_id = db.Column(db.String(36), db.ForeignKey('leases.id'), nullable=False)
-    # 🟢 FIXED: Changed to String(36) to match User.id (UUID)
     tenant_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
     
     amount = db.Column(db.Float, nullable=False)
