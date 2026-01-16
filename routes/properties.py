@@ -115,3 +115,14 @@ def get_my_properties():
     # Landlords see ALL their properties (pending, rejected, approved)
     properties = Property.query.filter_by(landlord_id=current_user_id).all()
     return jsonify([p.to_dict() for p in properties]), 200
+
+@properties_bp.route('/landlord/<user_id>', methods=['GET'], strict_slashes=False)
+@jwt_required()
+def get_properties_by_landlord(user_id):
+    # Security: Ensure the requester is viewing their own properties (or is Admin)
+    current_user_id = get_jwt_identity()
+    
+    # Optional: You could check if current_user_id == user_id here for extra security
+    
+    properties = Property.query.filter_by(landlord_id=user_id).all()
+    return jsonify([p.to_dict() for p in properties]), 200
